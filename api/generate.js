@@ -1,57 +1,88 @@
-// api/generate.js
+import { GoogleGenAI } from "@google/genai";
 
-export default async function handler(req, res) {
-  // Cấu hình CORS
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+// Bảng giá dịch vụ (Mapping Resolution -> Credits)
+// 1K = Sketch (4 Credits)
+// 2K = Quick Design (5 Credits)
+// 4K = Lookbook (10 Credits)
+const SERVICE_COSTS = {
+  '1K': 4,
+  '2K': 5,
+  '4K': 10
+};
+
+// Cấu hình CORS Helper
+const allowCors = (fn) => async (req, res) => {
+  res.setHeader('Access-Control-Allow-Credentials', true)
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT')
   res.setHeader(
     'Access-Control-Allow-Headers',
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-  );
-
+  )
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    res.status(200).end()
+    return
   }
+  return await fn(req, res)
+}
 
+const handler = async (req, res) => {
+  // Chỉ nhận POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
   try {
-    const { prompt, resolution = '1K', count = 1 } = req.body;
+    const { model, contents, config } = req.body;
 
-    // --- MÔ PHỎNG GỌI AI ENGINE (Gemini / Stable Diffusion) ---
-    // (Sau này bạn sẽ thay đoạn này bằng code gọi API thật)
-    
-    // 1. Tính toán chi phí giả lập (Cost Estimation)
-    // Ví dụ: 1 ảnh 1K = 1 Credit, 4K = 4 Credits
-    let costPerImage = 1;
-    if (resolution === '2K') costPerImage = 2;
-    if (resolution === '4K') costPerImage = 4;
-    
+    // --- 1. TÍNH CHI PHÍ (COST CALCULATION) ---
+    // Mặc định lấy độ phân giải từ config, nếu không có thì mặc định là 2K
+    // Trong req.body.config thường có trường 'resolution' nếu frontend gửi lên
+    // Hoặc nếu bạn gửi riêng ngoài body chính
+    const resolution = req.body.resolution || '2K'; 
+    const count = req.body.count || 1;
+
+    // Lấy giá dựa trên độ phân giải, mặc định là 5 (2K) nếu không khớp
+    let costPerImage = SERVICE_COSTS[resolution] || 5;
     const totalCost = costPerImage * count;
 
-    // 2. Mô phỏng độ trễ của AI (2-3 giây)
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // --- 2. GỌI AI ---
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("Server thiếu GEMINI_API_KEY");
+    }
 
-    // 3. Trả về kết quả
+    const ai = new GoogleGenAI({ apiKey });
+    
+    // Gọi Google Gemini
+    const response = await ai.models.generateContent({
+      model: model || "gemini-2.0-flash",
+      contents: contents,
+      config: config
+    });
+
+    const candidates = response.candidates;
+    if (!candidates || !candidates[0]?.content?.parts) {
+      throw new Error("Không tạo được ảnh/nội dung từ AI.");
+    }
+
+    const generatedPart = candidates[0].content.parts.find((p) => p.inlineData);
+    
+    // --- 3. TRẢ VỀ KẾT QUẢ KÈM CHI PHÍ ---
     return res.status(200).json({
       success: true,
-      data: [
-        // Trả về danh sách ảnh (Ở đây dùng ảnh mẫu ngẫu nhiên để test)
-        `https://source.unsplash.com/random/1024x1024/?${encodeURIComponent(prompt)}&sig=${Math.random()}`,
-      ],
+      data: generatedPart ? generatedPart.inlineData.data : null,
       meta: {
-        cost: totalCost, // <--- QUAN TRỌNG: Trả về số credit đã tiêu
+        cost: totalCost, // Server báo cho Frontend biết cần trừ bao nhiêu tiền
         resolution: resolution,
-        provider: 'Mentoris-AI-Core'
+        count: count
       }
     });
 
   } catch (error) {
-    console.error('API Error:', error);
-    return res.status(500).json({ success: false, error: error.message });
+    console.error("API Error:", error);
+    return res.status(500).json({ error: error.message });
   }
 }
+
+export default allowCors(handler);
