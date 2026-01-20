@@ -1,138 +1,167 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { createClient } from '../utils/supabase/client';
-import { User, DesignTab } from '../types'; // Import thêm DesignTab
+import React, { useState } from 'react';
+import { useApp } from '../contexts/AppContext'; // Lấy supabase từ đây
 import { toast } from 'sonner';
+import { Mail, Lock, Loader2, ArrowLeft, Github, Chrome } from 'lucide-react';
 
-// Định nghĩa đầy đủ Context để App.tsx không bị lỗi
-interface AppContextType {
-  // Auth State
-  user: User | null;
-  setUser: React.Dispatch<React.SetStateAction<User | null>>;
-  isLoading: boolean;
-  refreshUser: () => Promise<void>;
-  logout: () => Promise<void>; // Đổi tên từ signOut thành logout cho khớp App.tsx
-
-  // UI State (Quan trọng: Thiếu cái này là trắng trang)
-  viewMode: string; 
-  setViewMode: (mode: string) => void;
-  activeStudioTab: DesignTab;
-  setActiveStudioTab: (tab: DesignTab) => void;
-  isPricingOpen: boolean;
-  setPricingOpen: (open: boolean) => void;
-
-  // Admin Data (Giữ khung để không lỗi Admin Dashboard)
-  allUsers: User[];
-  usageLogs: any[];
-}
-
-const AppContext = createContext<AppContextType | undefined>(undefined);
-
-export function AppProvider({ children }: { children: React.ReactNode }) {
-  // 1. AUTH STATE
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export const AuthPage = ({ onBackToHome }: { onBackToHome: () => void }) => {
+  const { supabase, refreshUser, setViewMode } = useApp(); // ✅ Lấy supabase từ Context
+  const [isLogin, setIsLogin] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   
-  // 2. UI STATE (Khôi phục lại các biến này)
-  const [viewMode, setViewMode] = useState('landing');
-  const [activeStudioTab, setActiveStudioTab] = useState<DesignTab>('resources');
-  const [isPricingOpen, setPricingOpen] = useState(false);
-  
-  // 3. ADMIN STATE (Tạm thời để rỗng để tránh lỗi)
-  const [allUsers, setAllUsers] = useState<User[]>([]);
-  const [usageLogs, setUsageLogs] = useState<any[]>([]);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState(''); // Cho đăng ký
 
-  const supabase = createClient();
+  // Xử lý Đăng nhập / Đăng ký Email
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsLoading(true);
 
-  // Hàm làm mới User (Mapping dữ liệu chuẩn từ DB sang Code)
-  const refreshUser = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session?.user) {
-        setUser(null);
-        return;
-      }
-
-      // Lấy profile từ Supabase
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
-
-      if (profile) {
-        // MAPPING QUAN TRỌNG: Chuyển tên cột DB sang tên biến trong Code
-        setUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          // DB là full_name -> Code là name
-          name: profile.full_name || session.user.user_metadata?.full_name || 'User',
-          // DB là avatar_url -> Code là avatar
-          avatar: profile.avatar_url || session.user.user_metadata?.avatar_url || 'https://via.placeholder.com/150',
-          credits: profile.credits || 0,
-          // DB là is_admin (bool) -> Code là role (string)
-          role: profile.is_admin ? 'admin' : 'customer',
-          
-          // Các trường mặc định (để không bị lỗi Type)
-          subscriptionTier: 'free',
-          isActive: true,
-          permissions: [],
-          allowedResolutions: ['1K']
+      if (isLogin) {
+        // ĐĂNG NHẬP
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
         });
+        if (error) throw error;
+        toast.success('Đăng nhập thành công!');
+        await refreshUser();
+        setViewMode('studio'); // Chuyển thẳng vào Studio
+      } else {
+        // ĐĂNG KÝ
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              full_name: fullName,
+            },
+          },
+        });
+        if (error) throw error;
+        toast.success('Đăng ký thành công! Hãy kiểm tra email để xác nhận.');
+        setIsLogin(true);
       }
-    } catch (error) {
-      console.error('Error refreshing user:', error);
+    } catch (error: any) {
+      toast.error(error.message || 'Có lỗi xảy ra');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const logout = async () => {
+  // ✅ Xử lý Đăng nhập GOOGLE
+  const handleGoogleLogin = async () => {
     try {
-      await supabase.auth.signOut();
-      setUser(null);
-      setViewMode('landing'); // Về trang chủ khi đăng xuất
-      toast.success('Đã đăng xuất');
-    } catch (error) {
-      toast.error('Lỗi khi đăng xuất');
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          // Sau khi login xong sẽ quay về trang này
+          redirectTo: window.location.origin 
+        }
+      });
+      if (error) throw error;
+    } catch (error: any) {
+      toast.error('Lỗi đăng nhập Google: ' + error.message);
     }
   };
 
-  useEffect(() => {
-    refreshUser();
-    
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        refreshUser();
-      } else {
-        setUser(null);
-        setIsLoading(false);
-        setViewMode('landing');
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
   return (
-    <AppContext.Provider value={{ 
-      user, setUser, isLoading, refreshUser, logout,
-      viewMode, setViewMode,
-      activeStudioTab, setActiveStudioTab,
-      isPricingOpen, setPricingOpen,
-      allUsers, usageLogs
-    }}>
-      {children}
-    </AppContext.Provider>
-  );
-}
+    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Background Effect */}
+      <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20"></div>
+      <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-[#66E91E] opacity-10 blur-[120px] rounded-full"></div>
 
-export function useApp() {
-  const context = useContext(AppContext);
-  if (context === undefined) {
-    throw new Error('useApp must be used within an AppProvider');
-  }
-  return context;
-}
+      <div className="w-full max-w-md bg-[#111] border border-[#333] rounded-2xl p-8 shadow-2xl relative z-10">
+        <button onClick={onBackToHome} className="absolute top-4 left-4 text-gray-400 hover:text-white transition-colors">
+            <ArrowLeft className="w-5 h-5" />
+        </button>
+
+        <div className="text-center mb-8 mt-2">
+          <h1 className="text-3xl font-black tracking-tighter mb-2">MENTORIS<span className="text-[#66E91E]">.AI</span></h1>
+          <p className="text-gray-400 text-sm">Design Lab & Fashion Studio</p>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleAuth} className="space-y-4">
+          {!isLogin && (
+            <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase ml-1">Tên hiển thị</label>
+                <input 
+                    type="text" 
+                    required 
+                    className="w-full bg-[#222] border border-[#333] rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#66E91E] transition-colors"
+                    placeholder="VD: Nguyen Van A"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                />
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Email</label>
+            <div className="relative">
+                <Mail className="absolute left-4 top-3.5 w-4 h-4 text-gray-500" />
+                <input 
+                    type="email" 
+                    required 
+                    className="w-full bg-[#222] border border-[#333] rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-[#66E91E] transition-colors"
+                    placeholder="name@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Mật khẩu</label>
+            <div className="relative">
+                <Lock className="absolute left-4 top-3.5 w-4 h-4 text-gray-500" />
+                <input 
+                    type="password" 
+                    required 
+                    className="w-full bg-[#222] border border-[#333] rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:border-[#66E91E] transition-colors"
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                />
+            </div>
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={isLoading}
+            className="w-full bg-[#66E91E] hover:bg-[#5cd41b] text-black font-bold py-3.5 rounded-xl transition-all transform active:scale-95 flex items-center justify-center gap-2 mt-2"
+          >
+            {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (isLogin ? 'Đăng Nhập' : 'Đăng Ký Tài Khoản')}
+          </button>
+        </form>
+
+        <div className="my-6 flex items-center gap-3">
+            <div className="h-px bg-[#333] flex-1"></div>
+            <span className="text-xs text-gray-500 font-medium">HOẶC TIẾP TỤC VỚI</span>
+            <div className="h-px bg-[#333] flex-1"></div>
+        </div>
+
+        {/* SOCIAL LOGIN */}
+        <button 
+            onClick={handleGoogleLogin}
+            className="w-full bg-white text-black font-bold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors mb-4"
+        >
+            <Chrome className="w-5 h-5" /> 
+            Đăng nhập với Google
+        </button>
+
+        <p className="text-center text-sm text-gray-400 mt-6">
+            {isLogin ? "Chưa có tài khoản? " : "Đã có tài khoản? "}
+            <button 
+                onClick={() => setIsLogin(!isLogin)} 
+                className="text-[#66E91E] font-bold hover:underline"
+            >
+                {isLogin ? 'Đăng ký ngay' : 'Đăng nhập'}
+            </button>
+        </p>
+      </div>
+    </div>
+  );
+};
