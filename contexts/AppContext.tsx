@@ -3,8 +3,10 @@ import { createClient } from '../utils/supabase/client';
 import { User, DesignTab, CreditTransaction, Asset, UsageLog } from '../types';
 import { toast } from 'sonner';
 import { SupabaseClient } from '@supabase/supabase-js';
+// Import giá mặc định để đề phòng trường hợp mất mạng không lấy được tỷ giá live
+import { EXCHANGE_RATE as DEFAULT_EXCHANGE_RATE } from '../constants'; 
 
-// Dữ liệu mẫu an toàn cho Assets (nếu chưa có API lấy assets)
+// Dữ liệu mẫu an toàn cho Assets
 const DEFAULT_ASSETS: Asset[] = [
   { id: '1', name: 'Áo Thun Cơ Bản', url: 'https://via.placeholder.com/300', type: 'base' }
 ];
@@ -16,7 +18,7 @@ interface AppContextType {
   isLoading: boolean;
   refreshUser: () => Promise<void>;
   logout: () => Promise<void>;
-  supabase: SupabaseClient; // ✅ Giữ nguyên để AuthPage dùng
+  supabase: SupabaseClient;
 
   // 2. UI State
   viewMode: string;
@@ -26,14 +28,15 @@ interface AppContextType {
   isPricingOpen: boolean;
   setPricingOpen: (open: boolean) => void;
 
-  // 3. Data State (Mới - Để quản lý Assets & Logs)
+  // 3. Data State
   assets: Asset[];
   usageLogs: UsageLog[];
   transactions: CreditTransaction[];
   addUsageLog: (log: UsageLog, creditsToDeduct?: number) => void;
   
-  // 4. Admin Data (Placeholder)
+  // 4. Admin Data & System Info
   allUsers: User[];
+  exchangeRate: number; // 🔥 BIẾN MỚI: Tỷ giá USD/VND động
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -56,7 +59,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
-  // 🟢 HÀM REFRESH USER: Lấy full thông tin (Cả Admin & User thường)
+  // 🔥 STATE TỶ GIÁ: Khởi tạo bằng giá mặc định (25450), sau đó sẽ tự update
+  const [exchangeRate, setExchangeRate] = useState<number>(DEFAULT_EXCHANGE_RATE || 25450);
+
+  // 🟢 HÀM LẤY TỶ GIÁ TỰ ĐỘNG (USD -> VND) TỪ API MIỄN PHÍ
+  const fetchExchangeRate = async () => {
+    try {
+      // Gọi API Open Exchange Rates (Miễn phí, không cần key)
+      const res = await fetch('https://open.er-api.com/v6/latest/USD');
+      const data = await res.json();
+      
+      if (data && data.rates && data.rates.VND) {
+        const rate = data.rates.VND;
+        setExchangeRate(rate);
+        // console.log('✅ Đã cập nhật tỷ giá USD/VND:', rate);
+      }
+    } catch (error) {
+      console.warn('⚠️ Lỗi lấy tỷ giá thực tế, đang dùng tỷ giá mặc định:', DEFAULT_EXCHANGE_RATE);
+    }
+  };
+
+  // 🟢 HÀM REFRESH USER
   const refreshUser = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -66,8 +89,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Lấy Profile + Các cột mới (total_usage, phone, allowed_resolutions...)
-      const { data: profile, error } = await supabase
+      const { data: profile } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', session.user.id)
@@ -75,27 +97,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (profile) {
         const isAdmin = profile.role === 'admin';
-
         setUser({
-          // Thông tin cơ bản
           id: session.user.id,
           email: session.user.email || '',
           name: profile.full_name || session.user.user_metadata?.full_name || 'User',
           avatar: profile.avatar_url || session.user.user_metadata?.avatar_url || 'https://via.placeholder.com/150',
-          
-          // Thông tin Gói & Quyền
           role: profile.role || 'customer',
           credits: profile.credits || 0,
           subscriptionTier: profile.tier || 'free',
           isActive: profile.is_active ?? true,
-          
-          // Logic Phân quyền Frontend (Admin được 'all')
           permissions: isAdmin 
             ? ['all'] 
             : ['sketch', 'quick-design', 'lookbook', 'try-on', 'concept-product', 'resources', 'history'],
-
-          // 🔥 CÁC TRƯỜNG MỚI (Mapping từ DB sang Code)
-          phone: profile.phone || '', // Nếu null thì để rỗng
+          phone: profile.phone || '',
           allowedResolutions: profile.allowed_resolutions || ['1K'],
           totalUsage: profile.total_usage || 0,
           totalPaid: profile.total_paid || 0,
@@ -121,38 +135,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // 🟢 HÀM TRỪ TIỀN & GHI LOG (QUAN TRỌNG)
+  // 🟢 HÀM TRỪ TIỀN & GHI LOG
   const addUsageLog = async (log: UsageLog, creditsToDeduct: number = 0) => {
-    // 1. Cập nhật UI ngay lập tức (Optimistic UI) cho user thấy nhanh
     setUsageLogs(prev => [log, ...prev]);
     
     if (user && creditsToDeduct > 0) {
       setUser(prev => prev ? { 
         ...prev, 
         credits: Math.max(0, prev.credits - creditsToDeduct),
-        totalUsage: (prev.totalUsage || 0) + creditsToDeduct // Cộng dồn Usage ngay
+        totalUsage: (prev.totalUsage || 0) + creditsToDeduct 
       } : null);
     }
 
-    // 2. Gọi xuống Database để trừ tiền thật (An toàn)
     if (creditsToDeduct > 0 && user) {
        const { error } = await supabase.rpc('deduct_credits', {
           p_user_id: user.id,
           p_amount: creditsToDeduct,
           p_description: log.action
        });
-       
-       if (error) {
-         console.error("❌ Lỗi trừ tiền DB:", error);
-         // (Tùy chọn) Có thể thông báo lỗi cho user ở đây
-       }
+       if (error) console.error("❌ Lỗi trừ tiền DB:", error);
     }
   };
 
   useEffect(() => {
     refreshUser();
+    fetchExchangeRate(); // 🔥 Gọi hàm lấy tỷ giá ngay khi vào Web
     
-    // Lắng nghe thay đổi đăng nhập (Login/Logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         refreshUser();
@@ -174,7 +182,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       viewMode, setViewMode, activeStudioTab, setActiveStudioTab,
       isPricingOpen, setPricingOpen,
       assets, usageLogs, transactions, addUsageLog,
-      allUsers
+      allUsers,
+      exchangeRate // 🔥 Xuất biến tỷ giá ra để AdminDashboard dùng
     }}>
       {children}
     </AppContext.Provider>
