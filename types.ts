@@ -1,3 +1,6 @@
+// ==========================================
+// 1. PRODUCT & E-COMMERCE TYPES
+// ==========================================
 
 export interface ColorDefinition {
   name: string;
@@ -32,27 +35,45 @@ export interface Product {
   images: string[]; 
 }
 
+export interface CartItem extends Product {
+  quantity: number;
+  selectedSize: string;
+  selectedColor: string;
+}
+
+// ==========================================
+// 2. USER & ADMIN MANAGEMENT TYPES (UPDATED)
+// ==========================================
+
 export type SubscriptionTier = 'free' | 'basic' | 'pro' | 'enterprise';
 
-// REFACTORED: Matches Supabase 'profiles' table
+// ✅ USER INTERFACE (CẬP NHẬT FULL QUYỀN QUẢN TRỊ)
 export interface User {
   id: string; // UUID from Supabase Auth
   email: string;
-  name: string; // Mapped from 'full_name' in DB
+  name: string; // Mapped from 'full_name'
   role: 'admin' | 'customer';
-  avatar: string; // Mapped from 'avatar_url' in DB
-  credits: number;
+  avatar: string; // Mapped from 'avatar_url'
+  credits: number; // Số dư hiện tại
   subscriptionTier: SubscriptionTier;
   isActive: boolean;
-  permissions: string[]; // Logic handled in frontend based on Tier/Role
-  allowedResolutions?: string[]; // New: AI Quality Access (Array)
+  permissions: string[]; // Logic frontend quyết định user được làm gì
+
+  // 🔥 CÁC TRƯỜNG MỚI (ADMIN QUẢN LÝ)
+  phone?: string;              // Số điện thoại (Zalo)
+  allowedResolutions: string[]; // Chất lượng ảnh được phép ['1K', '2K', '4K']
+  totalUsage: number;          // Tổng credits đã dùng từ trước tới nay
+  totalPaid: number;           // Tổng tiền đã nạp vào hệ thống
+  lastSeen?: string;           // Thời gian online lần cuối (ISO String)
+
+  // Giữ lại để tương thích ngược (nếu code cũ có dùng)
   usageStats?: {
     totalImages: number;
     totalSpend: number;
   };
 }
 
-// NEW: Transaction History Interface
+// TRANSACTION HISTORY
 export interface CreditTransaction {
   id: string;
   userId: string;
@@ -63,11 +84,9 @@ export interface CreditTransaction {
   timestamp: number;
 }
 
-export interface CartItem extends Product {
-  quantity: number;
-  selectedSize: string;
-  selectedColor: string;
-}
+// ==========================================
+// 3. STUDIO & DESIGN TYPES
+// ==========================================
 
 export type DesignTab = 'resources' | 'sketch' | 'quick-design' | 'lookbook' | 'try-on' | 'concept-product' | 'history';
 
@@ -79,20 +98,13 @@ export interface GenerationResult {
   createdAt: number;
 }
 
-// AI API Types
-export interface AIServiceResponse {
-  success: boolean;
-  data?: string; // Image URL or Text
-  error?: string;
-}
-
 export interface GenConfig {
   resolution: '1K' | '2K' | '4K';
   count: number;
   aspectRatio: '1:1' | '3:4' | '4:3' | '16:9' | '9:16';
 }
 
-// New Types for Full System
+// ASSETS
 export interface Asset {
   id: string;
   name: string;
@@ -100,7 +112,6 @@ export interface Asset {
   type: 'base' | 'texture' | 'graphic' | 'model';
 }
 
-// NEW: Standardized Library Asset for Service Pattern
 export interface LibraryAsset {
   id: string;
   type: 'POSE' | 'SCENE' | 'CONCEPT';
@@ -111,6 +122,7 @@ export interface LibraryAsset {
   thumbnail_url?: string;
 }
 
+// CANVAS LAYERS
 export type PrintType = 'normal' | 'high_density' | 'heat_transfer' | 'embroidery' | 'decal' | 'screen' | 'rubber_press';
 
 export interface LayerFilters {
@@ -129,7 +141,6 @@ export interface DesignLayer {
   height: number;
   rotation: number; // degrees
   zIndex: number;
-  // New properties
   printType: PrintType;
   filters: LayerFilters;
 }
@@ -143,9 +154,13 @@ export interface Pose {
   id: string;
   category: string;
   name: string;
-  desc: string; // Instructions for AI
-  image: string; // Placeholder URL
+  desc: string; 
+  image: string; 
 }
+
+// ==========================================
+// 4. LOGGING & ANALYTICS TYPES
+// ==========================================
 
 export interface TokenUsage {
   promptTokens: number;
@@ -156,27 +171,3 @@ export interface TokenUsage {
 
 export interface UsageLog {
   id: string;
-  timestamp: number;
-  userId: string;
-  userName: string;
-  action: string;
-  modelName: string;
-  resolution?: '1K' | '2K' | '4K'; // Added for detailed analytics
-  tokens: TokenUsage;
-  cost: number;
-}
-
-// IndexedDB Storage Types
-export interface StoredImage {
-  id: string; // UUID
-  userId: string;
-  blob: Blob; // Binary Data
-  thumbnail?: Blob; // Optional thumbnail
-  type: 'sketch' | 'lookbook' | 'design' | 'try-on' | 'concept-product';
-  prompt?: string;
-  createdAt: number;
-  metadata: {
-    resolution: string;
-    aspectRatio: string;
-  };
-}
