@@ -1,7 +1,51 @@
-
 import { Product, ColorDefinition, Asset, GenConfig, Pose, User } from './types';
 
-// ... (Previous Constants remain unchanged) ...
+// =============================================================================
+// 1. CẤU HÌNH TÀI CHÍNH & BẢNG GIÁ MỚI (NEW UPDATE)
+// =============================================================================
+
+// Tỷ giá quy đổi: 1 Credit = 1.000 VNĐ
+export const CREDIT_EXCHANGE_RATE = 1000;
+
+// Bảng giá dịch vụ (Số credits bị trừ cho mỗi lần tạo ảnh)
+export const SERVICE_COSTS = {
+  SKETCH_1K: 4,    // 4 Credits = 4.000 VNĐ (Phác thảo - 1K)
+  DESIGN_2K: 5,    // 5 Credits = 5.000 VNĐ (Quick Design - 2K)
+  LOOKBOOK_4K: 10, // 10 Credits = 10.000 VNĐ (Lookbook/Try-on - 4K)
+};
+
+// Các gói nạp tiền (Hiển thị trong Admin & Modal nạp tiền)
+export const TOPUP_PACKAGES = [
+  {
+    id: 'starter',
+    price: 500000,        // 500.000 VNĐ
+    credits: 500,         // 500 Credits
+    bonus: 0,
+    label: 'Starter',
+    desc: 'Gói trải nghiệm cơ bản (Quy đổi: ~100 ảnh 2K)'
+  },
+  {
+    id: 'pro_creator',
+    price: 2999000,       // 2.999.000 VNĐ
+    credits: 3000,        // 3.000 Credits
+    bonus: 0,             // Giá ưu đãi tốt hơn mua lẻ
+    label: 'Pro Creator',
+    desc: 'Dành cho nhà sáng tạo chuyên nghiệp (Quy đổi: ~600 ảnh 2K)',
+    recommended: true     // Gói khuyên dùng
+  },
+  {
+    id: 'business',
+    price: 10000000,      // 10.000.000 VNĐ
+    credits: 10000,       // 10.000 Credits
+    bonus: 0,
+    label: 'Business',
+    desc: 'Giải pháp tối ưu cho Doanh nghiệp (Quy đổi: ~2.000 ảnh 2K)'
+  },
+];
+
+// =============================================================================
+// 2. DỮ LIỆU HỆ THỐNG (GIỮ NGUYÊN KHÔNG THAY ĐỔI)
+// =============================================================================
 
 export const EXTENDED_CATEGORIES = {
   men: [
@@ -323,4 +367,4 @@ export const PRICING = {
     IMAGE_PRICE_PER_UNIT: 0.04,
 };
 
-export const EXCHANGE_RATE = 25450; // 1 USD = 25,450 VND
+export const EXCHANGE_RATE = 26500;
