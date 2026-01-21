@@ -152,3 +152,66 @@ export const processAndUploadImage = async (file: File, userId: string = 'guest'
     throw error;
   }
 };
+
+// ==========================================
+// 🔥 NEW ADDITIONS FOR AI OPTIMIZATION
+// ==========================================
+
+export const blobToBase64 = (blob: Blob): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
+/**
+ * 🔥 HÀM NÉN ẢNH THÔNG MINH (SMART COMPRESSION)
+ * Giúp giảm dung lượng ảnh input từ vài MB xuống vài trăm KB để gửi qua API.
+ * @param base64Str - Chuỗi ảnh gốc
+ * @param maxWidth - Chiều rộng tối đa (1536 cho ảnh chính, 1024 cho ảnh phụ)
+ * @param quality - Chất lượng nén JPEG (0.1 - 1.0). Mức 0.8-0.9 là rất đẹp.
+ */
+export const resizeImageBase64 = async (base64Str: string, maxWidth = 1024, quality = 0.8): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      // Tính toán tỉ lệ khung hình
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxWidth) {
+          width = Math.round((width * maxWidth) / height);
+          height = maxWidth;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      
+      if (ctx) {
+        // Vẽ ảnh lên canvas (làm mịn ảnh khi thu nhỏ)
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // 🌟 QUAN TRỌNG: Ép về định dạng JPEG để giảm dung lượng tối đa
+        const resizedBase64 = canvas.toDataURL('image/jpeg', quality); 
+        resolve(resizedBase64);
+      } else {
+        resolve(base64Str); // Fallback
+      }
+    };
+    img.onerror = () => resolve(base64Str); // Fallback
+  });
+};
