@@ -17,15 +17,12 @@ export const createClient = () => {
     );
   }
 
+  // Cấu hình chuẩn, BỎ dòng 'lock' đi để tránh lỗi TypeError
   supabaseInstance = createSupabaseClient(supabaseUrl, supabaseKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
-      // 🔥 FIX LỖI ABORT ERROR:
-      // Tắt tính năng debug lock quá khắt khe của trình duyệt
-      // Nếu vẫn lỗi, Supabase sẽ tự fallback về memory
-      lock: typeof window !== 'undefined' ? window.navigator.locks : undefined,
     }
   });
 
