@@ -335,6 +335,8 @@ export const PACKAGES = [
   }
 ];
 
+// ... (Giữ nguyên các phần trên)
+
 export const MOCK_USER: User = {
   id: 'u1',
   name: 'Super Admin Developer',
@@ -350,6 +352,23 @@ export const MOCK_USER: User = {
     totalSpend: 0
   }
 };
+
+// 🔥 THÊM 2 BIẾN NÀY ĐỂ FIX LỖI BUILD:
+export const MOCK_USERS: User[] = [MOCK_USER];
+
+export const MOCK_LOGS: any[] = [
+  {
+    id: 'log_init',
+    timestamp: Date.now(),
+    userId: 'system',
+    userName: 'System',
+    action: 'SYSTEM_INIT',
+    modelName: 'system',
+    resolution: 'N/A',
+    tokens: {},
+    cost: 0
+  }
+];
 
 export const MOCK_ASSETS: Asset[] = [
     {
