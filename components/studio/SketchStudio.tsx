@@ -74,11 +74,16 @@ export const SketchStudio = () => {
       }
   }, [user, isGenerating]);
 
-  // Pricing Logic
+ // ... bên trong component SketchStudio ...
+
+  // Pricing Logic (CẬP NHẬT MỚI)
   const calculateCredits = (cfg: GenConfig) => {
-      let perImage = 4; // Standard 1K
-      if (cfg.resolution === '2K') perImage = 8;
-      if (cfg.resolution === '4K') perImage = 15;
+      // Quy ước: 1K=4, 2K=5, 4K=10
+      let perImage = 4; // Mặc định 1K
+      
+      if (cfg.resolution === '2K') perImage = 5;
+      if (cfg.resolution === '4K') perImage = 10;
+      
       return perImage * cfg.count;
   };
 
@@ -87,6 +92,7 @@ export const SketchStudio = () => {
   const handleGenerate = async () => {
     if (!sketch) return toast.error("Vui lòng tải lên bản phác thảo!");
     
+    // Kiểm tra số dư
     if (user && user.credits < estimatedCredits) {
         toast.error("Không đủ Credits", { description: `Cần ${estimatedCredits}, bạn có ${user.credits}` });
         return;
