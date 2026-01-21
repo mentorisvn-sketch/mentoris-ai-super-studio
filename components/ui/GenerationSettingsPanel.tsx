@@ -126,7 +126,7 @@ export const GenerationSettingsPanel = ({ config, onChange, isPoseSelectionActiv
             <input 
                 type="range" 
                 min="1" 
-                max="4" 
+                max="6" 
                 step="1"
                 value={config.count}
                 onChange={(e) => onChange({ ...config, count: parseInt(e.target.value) })}
