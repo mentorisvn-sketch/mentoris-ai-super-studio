@@ -25,7 +25,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
     const initAuth = async () => {
       try {
-        // 🔥 FIX TREO: Đặt timeout, nếu sau 2s Supabase chưa trả lời thì tự tắt loading
+        // 🔥 FIX TREO: Đặt timeout, nếu sau 3s Supabase chưa trả lời thì tự tắt loading
+        // Giúp người dùng không bao giờ bị kẹt ở màn hình trắng
         const timeOutId = setTimeout(() => {
             if (mounted) {
                 console.warn("⚠️ Auth timeout: Force loading to false");
@@ -61,7 +62,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
            localStorage.setItem('mentoris_current_user', JSON.stringify({ id: session.user.id }));
         }
       } catch (e: any) {
-          // Bỏ qua các lỗi lock/abort rác
+          // Bỏ qua các lỗi lock/abort rác để console đỡ báo đỏ
           const isIgnorable = e.message?.includes('Lock') || e.message?.includes('Abort');
           if (!isIgnorable) {
               console.error("Auth Init Error (Safe):", e);
