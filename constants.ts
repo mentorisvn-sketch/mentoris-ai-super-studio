@@ -202,12 +202,17 @@ export const COLORS: ColorDefinition[] = [
 
 export const RESOLUTIONS = ['1K', '2K', '4K'];
 export const COUNTS = [1, 2, 3, 4, 5, 6];
+// CẬP NHẬT DANH SÁCH TỈ LỆ KHUNG HÌNH ĐẦY ĐỦ
 export const ASPECT_RATIOS = [
-  { id: '3:4', label: '3:4 (Chân dung - Mặc định)' },
-  { id: '1:1', label: '1:1 (Vuông)' },
-  { id: '4:3', label: '4:3 (Ngang)' },
-  { id: '9:16', label: '9:16 (Story/Reel)' },
-  { id: '16:9', label: '16:9 (Cinematic)' },
+  { id: '21:9', label: 'Cinema', width: 1536, height: 640 }, // Mới
+  { id: '16:9', label: 'Landscape', width: 1344, height: 768 },
+  { id: '3:2', label: 'Photo', width: 1216, height: 832 },   // Mới
+  { id: '4:3', label: 'Tablet', width: 1152, height: 896 },
+  { id: '1:1', label: 'Square', width: 1024, height: 1024 },
+  { id: '3:4', label: 'Portrait', width: 896, height: 1152 },
+  { id: '2:3', label: 'Standard', width: 832, height: 1216 }, // Mới
+  { id: '4:5', label: 'Instagram', width: 816, height: 1024 }, // Mới
+  { id: '9:16', label: 'Mobile', width: 768, height: 1344 },
 ];
 
 export const LOOKBOOK_ANGLES = [
