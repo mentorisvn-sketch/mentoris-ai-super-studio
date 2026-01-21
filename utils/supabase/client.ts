@@ -3,19 +3,17 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 // Khởi tạo Singleton
 let supabaseInstance: ReturnType<typeof createSupabaseClient> | null = null;
 
-// 🔥 CUSTOM LOCK: Cơ chế khóa giả lập (Chạy ngay lập tức, không chờ trình duyệt)
-// Giúp khắc phục lỗi "Acquiring lock failed" và "AbortError"
-const debugLock = {
-  request: async (name: string, options: any, callback: any) => {
-    // Xử lý overloading của hàm request
-    const cb = typeof options === 'function' ? options : callback;
-    
-    if (typeof cb === 'function') {
-      // Gọi callback ngay lập tức mà không cần chờ lock thật sự
-      // Truyền vào một signal giả để code không bị lỗi
-      return cb({ signal: new AbortController().signal });
+// 🔥 1. TẠO CƠ CHẾ KHÓA ẢO (QUAN TRỌNG NHẤT)
+// Giúp bỏ qua lỗi "Acquiring Lock failed" trên Chrome/Edge
+const customLock = {
+  // Hàm này sẽ giả vờ lấy khóa và chạy callback ngay lập tức
+  request: async (_name: string, _options: any, callback: any) => {
+    try {
+      // Nếu callback cần signal, ta tạo signal giả
+      return await callback({ signal: new AbortController().signal });
+    } catch (e) {
+      console.warn("Supabase Lock Warning (Ignored):", e);
     }
-    return Promise.resolve();
   }
 };
 
@@ -27,6 +25,7 @@ export const createClient = () => {
 
   if (!supabaseUrl || !supabaseKey) {
     console.error("⚠️ CẢNH BÁO: Thiếu biến môi trường Supabase!");
+    // Trả về client giả để tránh crash app
     return createSupabaseClient('https://placeholder.supabase.co', 'placeholder-key');
   }
 
@@ -36,13 +35,11 @@ export const createClient = () => {
       autoRefreshToken: true,
       detectSessionInUrl: true,
       
-      // 🔥 CẤU HÌNH QUAN TRỌNG NHẤT:
-      // Ép buộc sử dụng debugLock thay vì navigator.locks của trình duyệt
-      // Điều này giúp tránh hoàn toàn lỗi kẹt khóa (LockManager error)
-      lock: debugLock as any, 
+      // 🔥 2. ÁP DỤNG KHÓA ẢO VÀO ĐÂY
+      lock: customLock as any, 
       
-      // Tắt debug log để Console sạch hơn
-      debug: false
+      // Tắt debug để log sạch sẽ hơn
+      debug: false 
     }
   });
 
