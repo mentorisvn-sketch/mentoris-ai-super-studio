@@ -3,7 +3,6 @@ import { GoogleGenAI } from "@google/genai";
 // ==========================================
 // 1. CẤU HÌNH BẢNG GIÁ DỊCH VỤ (Server Side)
 // ==========================================
-// Phải khớp 100% với constants.ts ở Frontend
 const SERVICE_COSTS = {
   '1K': 4,   // Sketch / Draft (4.000đ)
   '2K': 5,   // Quick Design (5.000đ)
@@ -36,22 +35,36 @@ const handler = async (req, res) => {
     const { model, contents, config } = req.body;
 
     // ==========================================
-    // 2. TÍNH TOÁN CHI PHÍ (COST CALCULATION)
+    // 2. TÁCH BIỆT THAM SỐ (QUAN TRỌNG)
     // ==========================================
     
-    // ⚠️ QUAN TRỌNG: Lấy resolution/count từ 'config' (nếu có) hoặc từ 'req.body'
-    // Frontend thường gửi dạng: { config: { resolution: '2K', count: 1 } }
-    const resolution = config?.resolution || req.body.resolution || '2K'; 
-    const count = config?.count || req.body.count || 1;
+    // A. Tham số dùng để TÍNH TIỀN (Business Logic)
+    const resolution = config?.resolution || '2K'; // Mặc định 2K
+    const count = config?.count || 1;              // Luôn là 1 (do frontend đã loop)
 
-    // Lấy đơn giá (Mặc định là 5 credits cho 2K nếu gửi sai resolution)
+    // B. Tham số dùng để GỌI AI (AI Logic)
+    // 🔥 Chỉ lấy những gì Gemini Imagen 3 hiểu (aspectRatio, sampleCount)
+    // ❌ KHÔNG gửi 'resolution' hay 'imageSize' vì AI sẽ báo lỗi
+    const aiConfig = {
+      sampleCount: 1, // Luôn sinh 1 ảnh mỗi lần gọi
+      aspectRatio: config?.aspectRatio || '1:1', // Tỉ lệ khung hình (16:9, 1:1...)
+      personGeneration: "allow_adult", // Cho phép tạo hình người
+      safetySettings: [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" }
+      ]
+    };
+
+    // ==========================================
+    // 3. TÍNH TOÁN CHI PHÍ
+    // ==========================================
     let costPerImage = SERVICE_COSTS[resolution] || 5;
-    
-    // Tổng tiền = Đơn giá * Số lượng ảnh
     const totalCost = costPerImage * count;
 
     // ==========================================
-    // 3. GỌI AI ENGINE (GOOGLE GEMINI)
+    // 4. GỌI AI ENGINE (GOOGLE GEMINI)
     // ==========================================
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -60,12 +73,11 @@ const handler = async (req, res) => {
 
     const ai = new GoogleGenAI({ apiKey });
     
-    // Gọi Google Gemini
-    // Lưu ý: config được truyền vào đây để AI biết gen ảnh cỡ nào (aspectRatio)
+    // Gọi Google Gemini với cấu hình AI "sạch"
     const response = await ai.models.generateContent({
-      model: model || "gemini-2.0-flash",
+      model: model || "gemini-2.0-flash", // Hoặc "imagen-3.0-generate-001"
       contents: contents,
-      config: config // Truyền config xuống để Gemini xử lý
+      config: aiConfig // 👈 Sử dụng aiConfig đã lọc sạch
     });
 
     const candidates = response.candidates;
@@ -73,17 +85,17 @@ const handler = async (req, res) => {
       throw new Error("AI không trả về kết quả hợp lệ.");
     }
 
-    // Tìm phần dữ liệu ảnh (inlineData) trong phản hồi
+    // Tìm phần dữ liệu ảnh (inlineData)
     const generatedPart = candidates[0].content.parts.find((p) => p.inlineData);
     
     // ==========================================
-    // 4. TRẢ VỀ KẾT QUẢ + HÓA ĐƠN (COST)
+    // 5. TRẢ VỀ KẾT QUẢ
     // ==========================================
     return res.status(200).json({
       success: true,
       data: generatedPart ? generatedPart.inlineData.data : null,
       meta: {
-        cost: totalCost,      // Số tiền Backend đã tính (Frontend sẽ dùng số này để trừ DB)
+        cost: totalCost,      // Số tiền đã tính
         resolution: resolution,
         count: count,
         provider: 'Mentoris-AI-Core'
