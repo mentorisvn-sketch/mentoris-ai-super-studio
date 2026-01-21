@@ -1,11 +1,26 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, UsageLog } from '../types';
+import { User, UsageLog, GenConfig } from '../types';
 import { createClient } from '../utils/supabase/client';
+import { toast } from 'sonner';
+import { MOCK_USERS, MOCK_LOGS } from '../constants'; // Import mock data nếu cần
 
 interface AppContextType {
   user: User | null;
   isLoading: boolean;
   setUser: React.Dispatch<React.SetStateAction<User | null>>;
+  
+  // 🔥 CÁC BIẾN BỊ THIẾU ĐÃ ĐƯỢC KHÔI PHỤC:
+  viewMode: string;
+  setViewMode: (mode: string) => void;
+  activeStudioTab: string;
+  setActiveStudioTab: (tab: string) => void;
+  isPricingOpen: boolean;
+  setPricingOpen: (open: boolean) => void;
+  
+  allUsers: User[]; // Dành cho Admin
+  usageLogs: UsageLog[];
+  logout: () => Promise<void>;
+  
   addUsageLog: (log: UsageLog) => void;
   syncCredits: (newBalance: number) => void;
 }
@@ -13,36 +28,41 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider = ({ children }: { children: React.ReactNode }) => {
+  // 1. Core Auth State
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Khởi tạo client an toàn
+  // 2. Navigation State (BỊ MẤT TRƯỚC ĐÂY)
+  const [viewMode, setViewMode] = useState('landing'); // Mặc định là landing
+  const [activeStudioTab, setActiveStudioTab] = useState('sketch');
+  const [isPricingOpen, setPricingOpen] = useState(false);
+  
+  // 3. Admin Data (Mock hoặc Fetch)
+  const [allUsers, setAllUsers] = useState<User[]>(MOCK_USERS || []);
+  const [usageLogs, setUsageLogs] = useState<UsageLog[]>(MOCK_LOGS || []);
+
   const supabase = createClient();
 
-  // 1. Load User & Profile
+  // --- AUTH INITIALIZATION (WITH TIMEOUT FIX) ---
   useEffect(() => {
     let mounted = true;
 
     const initAuth = async () => {
-      try {
-        // 🔥 FIX TREO: Đặt timeout, nếu sau 3s Supabase chưa trả lời thì tự tắt loading
-        // Giúp người dùng không bao giờ bị kẹt ở màn hình trắng
-        const timeOutId = setTimeout(() => {
-            if (mounted) {
-                console.warn("⚠️ Auth timeout: Force loading to false");
-                setIsLoading(false);
-            }
-        }, 3000);
+      // 🔥 FIX TREO: Timeout 2 giây, nếu Supabase kẹt thì ép vào Landing Page
+      const timeOutId = setTimeout(() => {
+          if (mounted && isLoading) {
+              console.warn("⚠️ Auth timeout: Force app to load");
+              setIsLoading(false);
+          }
+      }, 2000);
 
-        // Lấy session
+      try {
         const { data: { session }, error } = await supabase.auth.getSession();
-        
-        clearTimeout(timeOutId); // Xóa timeout nếu lấy xong
+        clearTimeout(timeOutId); // Hủy timeout nếu lấy được session
 
         if (error) throw error;
         
         if (session?.user && mounted) {
-           // Fetch profile (credits)
            const { data: profile } = await supabase
               .from('profiles')
               .select('*')
@@ -56,16 +76,17 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
                credits: profile?.credits || 0,
                role: profile?.role || 'customer',
                avatar: profile?.avatar_url,
-               totalUsage: profile?.total_usage || 0
+               totalUsage: profile?.total_usage || 0,
+               permissions: profile?.permissions || []
            });
            
-           localStorage.setItem('mentoris_current_user', JSON.stringify({ id: session.user.id }));
+           // Nếu đã login, vào thẳng Studio (hoặc Landing tùy logic)
+           // setViewMode('studio'); 
         }
       } catch (e: any) {
-          // Bỏ qua các lỗi lock/abort rác để console đỡ báo đỏ
-          const isIgnorable = e.message?.includes('Lock') || e.message?.includes('Abort');
-          if (!isIgnorable) {
-              console.error("Auth Init Error (Safe):", e);
+          // Bỏ qua lỗi lock rác
+          if (!e.message?.includes('Lock') && !e.message?.includes('Abort')) {
+              console.error("Auth Error:", e);
           }
       } finally {
           if (mounted) setIsLoading(false);
@@ -77,10 +98,9 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     // Listen for Auth Changes
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
         if (!mounted) return;
-        
         if (event === 'SIGNED_OUT') {
             setUser(null);
-            localStorage.removeItem('mentoris_current_user');
+            setViewMode('landing'); // Về trang chủ khi logout
         } else if (event === 'SIGNED_IN' && session?.user) {
              const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
              setUser({
@@ -90,7 +110,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
                  credits: profile?.credits || 0,
                  role: profile?.role || 'customer',
                  avatar: profile?.avatar_url,
-                 totalUsage: profile?.total_usage || 0
+                 totalUsage: profile?.total_usage || 0,
+                 permissions: profile?.permissions || []
              });
         }
     });
@@ -101,8 +122,16 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
+  // --- ACTIONS ---
+  const logout = async () => {
+      await supabase.auth.signOut();
+      setUser(null);
+      setViewMode('landing');
+      toast.success("Đã đăng xuất");
+  };
+
   const addUsageLog = (log: UsageLog) => {
-    console.log("Activity Logged:", log.action); 
+      setUsageLogs(prev => [log, ...prev]);
   };
 
   const syncCredits = (newBalance: number) => {
@@ -112,7 +141,14 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AppContext.Provider value={{ user, isLoading, setUser, addUsageLog, syncCredits }}>
+    <AppContext.Provider value={{ 
+        user, isLoading, setUser, 
+        viewMode, setViewMode,
+        activeStudioTab, setActiveStudioTab,
+        isPricingOpen, setPricingOpen,
+        allUsers, usageLogs, logout,
+        addUsageLog, syncCredits
+    }}>
       {children}
     </AppContext.Provider>
   );
