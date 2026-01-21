@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Shirt, Camera, RefreshCcw, Download, Maximize2, Plus, X, Image as ImageIcon, Loader2, Sparkles, User as UserIcon } from 'lucide-react';
 import { Button, SectionHeader, FileUploader, GenerationSettingsPanel, ImageLightbox, FadeImage } from '../ui';
@@ -12,33 +11,48 @@ import { toast } from 'sonner';
 export const VirtualTryOnStudio = () => {
   const { addUsageLog, user } = useApp();
   
-  // --- STATE ---
+  // ===========================================================================
+  // 1. STATE MANAGEMENT (QUẢN LÝ TRẠNG THÁI)
+  // ===========================================================================
+  
+  // Input Images
   const [modelImage, setModelImage] = useState<string | null>(null);
   const [garmentImage, setGarmentImage] = useState<string | null>(null);
   const [accessories, setAccessories] = useState<string[]>([]);
   
+  // Settings
   const [bgMode, setBgMode] = useState<'original' | 'change'>('original');
   const [bgDescription, setBgDescription] = useState("");
-  
+  const [config, setConfig] = useState<GenConfig>(DEFAULT_GEN_CONFIG);
+
+  // UI State
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<string[]>([]);
-  const [config, setConfig] = useState<GenConfig>(DEFAULT_GEN_CONFIG);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
-  
   const [recentHistory, setRecentHistory] = useState<{ id: string, url: string }[]>([]);
+  
+  // Refs
   const accInputRef = useRef<HTMLInputElement>(null);
 
-  // Pricing Logic
+  // ===========================================================================
+  // 2. PRICING LOGIC (LOGIC TÍNH TIỀN - NEW UPDATE)
+  // ===========================================================================
+  
+  // Quy ước giá mới: 1K=4, 2K=5, 4K=10
   const calculateCredits = (cfg: GenConfig) => {
-      let perImage = 8; // Higher base cost due to complexity
-      if (cfg.resolution === '2K') perImage = 15;
-      if (cfg.resolution === '4K') perImage = 25;
+      let perImage = 4; // Mặc định 1K (Draft)
+      
+      if (cfg.resolution === '2K') perImage = 5;  // Standard
+      if (cfg.resolution === '4K') perImage = 10; // High Quality
+      
       return perImage * cfg.count;
   };
 
   const estimatedCredits = calculateCredits(config);
 
-  // --- EFFECTS ---
+  // ===========================================================================
+  // 3. DATA FETCHING (LẤY LỊCH SỬ)
+  // ===========================================================================
   useEffect(() => {
       const fetchHistory = async () => {
           if (!user) return;
@@ -55,17 +69,22 @@ export const VirtualTryOnStudio = () => {
       if (!isGenerating) fetchHistory();
   }, [user, isGenerating]);
 
-  // --- HANDLERS ---
+  // ===========================================================================
+  // 4. HANDLERS (XỬ LÝ SỰ KIỆN)
+  // ===========================================================================
+
   const removeAccessory = (index: number) => {
       setAccessories(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleGenerate = async () => {
+    // Validate Input
     if (!modelImage) return toast.error("Vui lòng tải lên ảnh người mẫu!");
     if (!garmentImage) return toast.error("Vui lòng tải lên ảnh sản phẩm cần thay!");
 
+    // Check Balance (Kiểm tra số dư)
     if (user && user.credits < estimatedCredits) {
-        toast.error("Không đủ Credits");
+        toast.error("Không đủ Credits", { description: `Cần ${estimatedCredits}, bạn có ${user.credits}` });
         return;
     }
 
@@ -73,6 +92,7 @@ export const VirtualTryOnStudio = () => {
     setResult([]);
 
     try {
+        // Gọi API AI
         const res = await generateVirtualTryOn(
             modelImage,
             garmentImage,
@@ -84,23 +104,24 @@ export const VirtualTryOnStudio = () => {
         
         setResult(res.images);
 
-       addUsageLog({
+        // Ghi Log & Trừ Tiền (Quan trọng)
+        addUsageLog({
            id: Date.now().toString(),
            timestamp: Date.now(),
            userId: user?.id || 'guest',
            userName: user?.name || 'Guest',
            action: 'VIRTUAL_TRY_ON',
-           modelName: 'gemini-3-pro-image-preview',
+           modelName: 'gemini-tryon-pro',
            resolution: config.resolution,
            tokens: res.usage,
-           cost: res.usage.imageCount * 0.08
-       }, estimatedCredits);
+           cost: estimatedCredits // <--- Lưu đúng số tiền đã tính (4/5/10)
+       }, estimatedCredits); // <--- Trừ đúng số tiền này trong Database
 
-       toast.success("Thử đồ thành công!");
+       toast.success("Thử đồ thành công!", { description: `-${estimatedCredits} Credits` });
 
-    } catch (e) {
+    } catch (e: any) {
         console.error(e);
-        toast.error("Lỗi thử đồ. Vui lòng thử lại.");
+        toast.error("Lỗi thử đồ. Vui lòng thử lại.", { description: e.message });
     } finally {
         setIsGenerating(false);
     }
@@ -115,9 +136,12 @@ export const VirtualTryOnStudio = () => {
     document.body.removeChild(link);
   };
 
+  // ===========================================================================
+  // 5. RENDER UI (GIAO DIỆN)
+  // ===========================================================================
   return (
     <div className="flex flex-col lg:flex-row h-full bg-white overflow-hidden">
-       {/* --- LEFT COLUMN: FIXED --- */}
+       {/* --- LEFT COLUMN: INPUTS --- */}
        <div className="w-full lg:w-[400px] xl:w-[450px] flex-shrink-0 h-full flex flex-col border-r border-gray-200 bg-white z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
           <div className="flex-none p-5 border-b border-gray-100 bg-white z-10">
              <SectionHeader title="Thử Đồ Ảo" subtitle="Virtual Try-On (VTON)" />
