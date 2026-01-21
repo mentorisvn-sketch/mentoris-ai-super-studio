@@ -4,16 +4,18 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 let supabaseInstance: ReturnType<typeof createSupabaseClient> | null = null;
 
 // 🔥 1. TẠO CƠ CHẾ KHÓA ẢO (QUAN TRỌNG NHẤT)
-// Giúp bỏ qua lỗi "Acquiring Lock failed" trên Chrome/Edge
+// Giúp bỏ qua lỗi "Acquiring Lock failed" trên Chrome/Edge gây trắng trang
 const customLock = {
-  // Hàm này sẽ giả vờ lấy khóa và chạy callback ngay lập tức
   request: async (_name: string, _options: any, callback: any) => {
-    try {
-      // Nếu callback cần signal, ta tạo signal giả
-      return await callback({ signal: new AbortController().signal });
-    } catch (e) {
-      console.warn("Supabase Lock Warning (Ignored):", e);
+    // Xử lý tham số linh hoạt (vì tham số thứ 2 là optional)
+    const cb = typeof _options === 'function' ? _options : callback;
+    
+    if (typeof cb === 'function') {
+      // Gọi callback ngay lập tức với signal giả
+      // Giúp Supabase tiếp tục chạy mà không bị kẹt
+      return await cb({ signal: new AbortController().signal });
     }
+    return Promise.resolve();
   }
 };
 
@@ -36,6 +38,7 @@ export const createClient = () => {
       detectSessionInUrl: true,
       
       // 🔥 2. ÁP DỤNG KHÓA ẢO VÀO ĐÂY
+      // Ép buộc Supabase dùng khóa này thay vì khóa của trình duyệt
       lock: customLock as any, 
       
       // Tắt debug để log sạch sẽ hơn
