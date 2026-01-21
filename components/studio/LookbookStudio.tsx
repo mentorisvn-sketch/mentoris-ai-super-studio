@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Camera, ChevronRight, MapPin, PersonStanding, User as UserIcon, Download, Maximize2, Plus, X, History, Upload, Scissors, Loader2, Layout, Sparkles, RefreshCcw, Send, Edit3, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button, SectionHeader, FileUploader, GenerationSettingsPanel, ImageLightbox, FadeImage } from '../ui';
@@ -11,7 +10,8 @@ import { getUserHistory } from '../../services/storageService';
 import { toast } from 'sonner';
 
 export const LookbookStudio = () => {
-  const { addUsageLog, user } = useApp();
+  // 🔥 Thêm syncCredits từ useApp
+  const { addUsageLog, user, syncCredits } = useApp();
   
   // --- STATE ---
   const [productImage, setProductImage] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export const LookbookStudio = () => {
   
   // Custom Prompt State
   const [sceneDescription, setSceneDescription] = useState("");
-  const [isPromptExpanded, setIsPromptExpanded] = useState(false); // New: Progressive Disclosure
+  const [isPromptExpanded, setIsPromptExpanded] = useState(false);
 
   // Modals
   const [isModelModalOpen, setModelModalOpen] = useState(false);
@@ -47,18 +47,15 @@ export const LookbookStudio = () => {
 
   const countToGenerate = selectedPoses.length > 0 ? selectedPoses.length : config.count;
 
-  // Pricing Logic (CẬP NHẬT MỚI)
-  const calculateCredits = (cfg: GenConfig, count: number) => {
-      // Quy ước: 1K=4, 2K=5, 4K=10
-      let perImage = 4; 
-      
+  // Pricing Logic (Chỉ dùng để hiển thị ước tính cho User xem)
+  const calculateEstimatedCredits = (cfg: GenConfig, count: number) => {
+      let perImage = 4; // 1K
       if (cfg.resolution === '2K') perImage = 5;
       if (cfg.resolution === '4K') perImage = 10;
-      
       return perImage * count;
   };
 
-  const estimatedCredits = calculateCredits(config, countToGenerate);
+  const estimatedCredits = calculateEstimatedCredits(config, countToGenerate);
 
   // --- EFFECTS ---
   useEffect(() => {
@@ -102,19 +99,15 @@ export const LookbookStudio = () => {
       } catch(e) { console.error(e); }
   };
 
-  // Select Concept Handler: Auto-fill Prompt
   const handleSelectConcept = (asset: LibraryAsset) => {
       setSelectedConcept(asset);
-      setSceneDescription(asset.prompt_payload); // Sync logic
-      setIsPromptExpanded(false); // Auto-collapse to keep UI clean
+      setSceneDescription(asset.prompt_payload); 
+      setIsPromptExpanded(false); 
   };
 
-  // Sync Logic: Detect Manual Edits
   const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newVal = e.target.value;
       setSceneDescription(newVal);
-      
-      // If user edits text and it diverges from the selected preset, detach the preset (Visual Sync)
       if (selectedConcept && newVal !== selectedConcept.prompt_payload) {
           setSelectedConcept(null);
       }
@@ -128,8 +121,9 @@ export const LookbookStudio = () => {
   const handleGenerate = async () => {
     if (!productImage) return toast.error("Vui lòng tải lên ảnh sản phẩm!");
 
+    // Check sơ bộ ở Client (Server sẽ check lại lần nữa)
     if (user && user.credits < estimatedCredits) {
-        toast.error("Không đủ Credits", { description: `Cần ${estimatedCredits}, bạn có ${user.credits}` });
+        toast.error("Không đủ Credits", { description: `Cần khoảng ${estimatedCredits}, bạn có ${user.credits}` });
         return;
     }
 
@@ -138,14 +132,13 @@ export const LookbookStudio = () => {
 
     try {
         const poseDescriptions = selectedPoses.map(p => p.prompt_payload);
-        
-        // Use custom prompt if available, otherwise fallback to "Studio lighting"
         const conceptDesc = sceneDescription.trim() || "Professional studio lighting, neutral background.";
         
         const activeConfig = selectedPoses.length > 0 
             ? { ...config, count: selectedPoses.length }
             : config;
 
+        // 1. Gọi API (Server tự trừ tiền & upload ảnh)
         const res = await generateLookbook(
             productImage, 
             modelUrl, 
@@ -157,7 +150,8 @@ export const LookbookStudio = () => {
         
         setResult(res.images);
 
-       addUsageLog({
+        // 2. Log UI (Không trừ tiền ở đây nữa)
+        addUsageLog({
            id: Date.now().toString(),
            timestamp: Date.now(),
            userId: user?.id || 'guest',
@@ -166,32 +160,36 @@ export const LookbookStudio = () => {
            modelName: 'gemini-3-pro-image-preview',
            resolution: config.resolution,
            tokens: res.usage,
-           cost: res.usage.imageCount * 0.04
-       }, estimatedCredits);
+           cost: 0 // Client để 0, Server đã trừ
+        }); // Bỏ tham số creditsToDeduct
 
-       toast.success("Lookbook hoàn tất!", { description: `-${estimatedCredits} Credits` });
+        // 3. 🔥 Cập nhật số dư chính xác từ Server
+        if (res.newBalance !== undefined) {
+            syncCredits(res.newBalance);
+        }
 
-    } catch (e) {
+        toast.success("Lookbook hoàn tất!");
+
+    } catch (e: any) {
         console.error(e);
-        toast.error("Lỗi tạo Lookbook");
+        toast.error("Lỗi tạo Lookbook", { description: e.message });
     } finally {
         setIsGenerating(false);
     }
   };
 
-  // Prepare Regeneration: Open Overlay
+  // Regeneration Handler
   const handleInitRegenerate = (index: number) => {
       setActiveRegenIndex(index);
       setRegenNote(""); 
   };
 
-  // Confirm Regeneration with Note
   const handleConfirmRegenerate = async (index: number) => {
       setActiveRegenIndex(null); 
       if (!productImage) return;
       
-      const singleCreditCost = calculateCredits(config, 1);
-      if (user && user.credits < singleCreditCost) {
+      const estimatedCost = calculateEstimatedCredits(config, 1);
+      if (user && user.credits < estimatedCost) {
           toast.error("Không đủ Credits");
           return;
       }
@@ -234,15 +232,20 @@ export const LookbookStudio = () => {
                 modelName: 'gemini-3-pro-image-preview',
                 resolution: config.resolution,
                 tokens: res.usage,
-                cost: res.usage.imageCount * 0.04
-            }, singleCreditCost);
+                cost: 0
+            }); // Bỏ creditsToDeduct
+
+            // Update Balance
+            if (res.newBalance !== undefined) {
+                syncCredits(res.newBalance);
+            }
             
             toast.success("Đã tạo lại ảnh");
           }
 
-      } catch (e) {
+      } catch (e: any) {
           console.error("Regeneration failed", e);
-          toast.error("Lỗi tạo lại ảnh");
+          toast.error("Lỗi tạo lại ảnh", { description: e.message });
       } finally {
           setRegeneratingIndices(prev => prev.filter(i => i !== index));
       }
@@ -260,7 +263,6 @@ export const LookbookStudio = () => {
   const accInputRef = useRef<HTMLInputElement>(null);
   const modelInputRef = useRef<HTMLInputElement>(null);
 
-  // Helper to determine display text for Scene
   const getSceneDisplayText = () => {
       if (selectedConcept) return selectedConcept.title;
       if (sceneDescription && sceneDescription.trim().length > 0) return "Tùy chỉnh (Custom)";
@@ -405,7 +407,7 @@ export const LookbookStudio = () => {
                     {isGenerating ? 'Đang xử lý...' : 'Chụp Lookbook'} <Camera className="w-5 h-5 ml-1" />
                 </Button>
                 <div className="flex items-center justify-center gap-2 mt-3 text-[10px] text-gray-400 font-medium">
-                    <span className="bg-black text-white px-2 py-0.5 rounded">{estimatedCredits} credits</span>
+                    <span className="bg-black text-white px-2 py-0.5 rounded">{estimatedCredits} credits (Ước tính)</span>
                     <span className="font-bold text-green-600">Enterprise Mode</span>
                 </div>
           </div>
