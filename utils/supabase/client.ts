@@ -4,17 +4,24 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 let supabaseInstance: ReturnType<typeof createSupabaseClient> | null = null;
 
 export const createClient = () => {
-  // Nếu đã có client rồi thì dùng lại, không tạo mới (Singleton)
+  // Nếu đã có client rồi thì dùng lại
   if (supabaseInstance) return supabaseInstance;
 
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-  // 🔥 Bắt lỗi chặt chẽ: Thiếu key là báo lỗi đỏ lòm ngay console để biết đường sửa
+  // 🔥 THAY ĐỔI QUAN TRỌNG: 
+  // Thay vì "throw Error" làm sập web, chúng ta chỉ báo lỗi console và trả về Client giả.
+  // Điều này giúp Web vẫn hiện giao diện (để bạn debug) thay vì trắng xóa.
   if (!supabaseUrl || !supabaseKey) {
-    console.error("❌ LỖI NGHIÊM TRỌNG: Thiếu biến môi trường Supabase!");
-    console.error("👉 Vui lòng kiểm tra file .env hoặc cấu hình Vercel.");
-    throw new Error("Missing Supabase Environment Variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)");
+    console.error("⚠️ CẢNH BÁO: Thiếu biến môi trường Supabase! (VITE_SUPABASE_URL hoặc VITE_SUPABASE_ANON_KEY)");
+    console.error("👉 Vui lòng kiểm tra file .env hoặc cấu hình Environment Variables trên Vercel.");
+    
+    // Trả về client giả để App không bị Crash
+    return createSupabaseClient(
+        'https://placeholder.supabase.co', 
+        'placeholder-key'
+    );
   }
 
   supabaseInstance = createSupabaseClient(supabaseUrl, supabaseKey, {
