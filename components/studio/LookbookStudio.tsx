@@ -47,11 +47,14 @@ export const LookbookStudio = () => {
 
   const countToGenerate = selectedPoses.length > 0 ? selectedPoses.length : config.count;
 
-  // Pricing Logic
+  // Pricing Logic (CẬP NHẬT MỚI)
   const calculateCredits = (cfg: GenConfig, count: number) => {
-      let perImage = 6; 
-      if (cfg.resolution === '2K') perImage = 12;
-      if (cfg.resolution === '4K') perImage = 20;
+      // Quy ước: 1K=4, 2K=5, 4K=10
+      let perImage = 4; 
+      
+      if (cfg.resolution === '2K') perImage = 5;
+      if (cfg.resolution === '4K') perImage = 10;
+      
       return perImage * count;
   };
 
