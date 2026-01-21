@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Wand2, Download, Maximize2, ImageIcon, Lightbulb, X, Search, Loader2, Sparkles, Palette, Pipette, FileText, Layout, Shirt, Layers, Box } from 'lucide-react';
 import { Button, SectionHeader, FileUploader, GenerationSettingsPanel, ImageLightbox, FadeImage } from '../ui';
@@ -10,7 +9,8 @@ import { getUserHistory } from '../../services/storageService';
 import { toast } from 'sonner';
 
 export const SketchStudio = () => {
-  const { addUsageLog, user } = useApp();
+  // 🔥 Thêm syncCredits
+  const { addUsageLog, user, syncCredits } = useApp();
   
   // States for Inputs
   const [sketch, setSketch] = useState<string | null>(null);
@@ -74,27 +74,22 @@ export const SketchStudio = () => {
       }
   }, [user, isGenerating]);
 
- // ... bên trong component SketchStudio ...
-
-  // Pricing Logic (CẬP NHẬT MỚI)
-  const calculateCredits = (cfg: GenConfig) => {
-      // Quy ước: 1K=4, 2K=5, 4K=10
-      let perImage = 4; // Mặc định 1K
-      
+  // Pricing Logic (Display Only)
+  const calculateEstimatedCredits = (cfg: GenConfig) => {
+      let perImage = 4;
       if (cfg.resolution === '2K') perImage = 5;
       if (cfg.resolution === '4K') perImage = 10;
-      
       return perImage * cfg.count;
   };
 
-  const estimatedCredits = calculateCredits(config);
+  const estimatedCredits = calculateEstimatedCredits(config);
 
   const handleGenerate = async () => {
     if (!sketch) return toast.error("Vui lòng tải lên bản phác thảo!");
     
-    // Kiểm tra số dư
+    // Check Client-side (Optional but good UX)
     if (user && user.credits < estimatedCredits) {
-        toast.error("Không đủ Credits", { description: `Cần ${estimatedCredits}, bạn có ${user.credits}` });
+        toast.error("Không đủ Credits", { description: `Cần khoảng ${estimatedCredits}, bạn có ${user.credits}` });
         return;
     }
 
@@ -104,6 +99,7 @@ export const SketchStudio = () => {
     try {
        const useSketchColors = colorMode === 'sketch';
        
+       // 1. Call API (Server handles payment & upload)
        const res = await generateFromSketch(
            sketch, 
            refMaterial, 
@@ -116,8 +112,10 @@ export const SketchStudio = () => {
            config,
            outputMode 
         );
+       
        setResult(res.images);
        
+       // 2. Log UI (Cost = 0 here, server handled it)
        addUsageLog({
            id: Date.now().toString(),
            timestamp: Date.now(),
@@ -127,10 +125,15 @@ export const SketchStudio = () => {
            modelName: 'gemini-3-pro-image-preview',
            resolution: config.resolution,
            tokens: res.usage,
-           cost: res.usage.imageCount * 0.04 
-       }, estimatedCredits);
+           cost: 0 
+       });
 
-       toast.success("Đã tạo xong thiết kế!", { description: `-${estimatedCredits} Credits` });
+       // 3. Sync Balance
+       if (res.newBalance !== undefined) {
+           syncCredits(res.newBalance);
+       }
+
+       toast.success("Đã tạo xong thiết kế!");
 
     } catch (e: any) {
        console.error(e);
@@ -291,7 +294,7 @@ export const SketchStudio = () => {
                     {isGenerating ? 'Đang vẽ...' : 'Tạo Thiết Kế'} <Wand2 className="w-5 h-5 ml-1" />
                 </Button>
                 <div className="flex items-center justify-center gap-2 mt-3 text-[10px] text-gray-400 font-medium">
-                    <span className="bg-black text-white px-2 py-0.5 rounded">{estimatedCredits} credits</span>
+                    <span className="bg-black text-white px-2 py-0.5 rounded">{estimatedCredits} credits (Ước tính)</span>
                     <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
                     <span>Model: Nano Banana Pro™</span>
                 </div>
@@ -359,7 +362,7 @@ export const SketchStudio = () => {
                  </div>
              )}
         </div>
-      
+       
       {/* Lightbox Modal */}
       {lightboxImage && (
           <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
