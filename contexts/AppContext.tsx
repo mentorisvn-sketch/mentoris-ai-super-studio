@@ -3,7 +3,6 @@ import { createClient } from '../utils/supabase/client';
 import { User, DesignTab, CreditTransaction, Asset, UsageLog } from '../types';
 import { toast } from 'sonner';
 import { SupabaseClient } from '@supabase/supabase-js';
-// Import giá mặc định để đề phòng trường hợp mất mạng không lấy được tỷ giá live
 import { EXCHANGE_RATE as DEFAULT_EXCHANGE_RATE } from '../constants'; 
 
 // Dữ liệu mẫu an toàn cho Assets
@@ -36,7 +35,7 @@ interface AppContextType {
   
   // 4. Admin Data & System Info
   allUsers: User[];
-  exchangeRate: number; // 🔥 BIẾN MỚI: Tỷ giá USD/VND động
+  exchangeRate: number; // Tỷ giá USD/VND động
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -59,27 +58,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
 
-  // 🔥 STATE TỶ GIÁ: Khởi tạo bằng giá mặc định (25450), sau đó sẽ tự update
+  // 🔥 STATE TỶ GIÁ: Khởi tạo bằng giá mặc định, sau đó tự update
   const [exchangeRate, setExchangeRate] = useState<number>(DEFAULT_EXCHANGE_RATE || 25450);
 
-  // 🟢 HÀM LẤY TỶ GIÁ TỰ ĐỘNG (USD -> VND) TỪ API MIỄN PHÍ
+  // 🟢 HÀM LẤY TỶ GIÁ TỰ ĐỘNG (USD -> VND)
   const fetchExchangeRate = async () => {
     try {
-      // Gọi API Open Exchange Rates (Miễn phí, không cần key)
       const res = await fetch('https://open.er-api.com/v6/latest/USD');
       const data = await res.json();
       
       if (data && data.rates && data.rates.VND) {
-        const rate = data.rates.VND;
-        setExchangeRate(rate);
-        // console.log('✅ Đã cập nhật tỷ giá USD/VND:', rate);
+        setExchangeRate(data.rates.VND);
       }
     } catch (error) {
-      console.warn('⚠️ Lỗi lấy tỷ giá thực tế, đang dùng tỷ giá mặc định:', DEFAULT_EXCHANGE_RATE);
+      console.warn('⚠️ Lỗi lấy tỷ giá, dùng mặc định:', DEFAULT_EXCHANGE_RATE);
     }
   };
 
-  // 🟢 HÀM REFRESH USER
+  // 🟢 HÀM REFRESH USER (CẬP NHẬT MỚI: Đọc custom_permissions)
   const refreshUser = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -89,6 +85,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Lấy thông tin profile từ DB
       const { data: profile } = await supabase
         .from('profiles')
         .select('*')
@@ -106,11 +103,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           credits: profile.credits || 0,
           subscriptionTier: profile.tier || 'free',
           isActive: profile.is_active ?? true,
-          permissions: isAdmin 
-            ? ['all'] 
-            : ['sketch', 'quick-design', 'lookbook', 'try-on', 'concept-product', 'resources', 'history'],
+          
+          // 🔴 QUAN TRỌNG: Mapping quyền hạn
+          // Nếu là Admin -> Full quyền ['all']
+          // Nếu là User -> Lấy từ cột 'custom_permissions' (mặc định rỗng nếu null)
+          permissions: isAdmin ? ['all'] : (profile.custom_permissions || []),
+          
+          allowedResolutions: profile.allowed_resolutions || ['1K'], // Mặc định 1K
+          
           phone: profile.phone || '',
-          allowedResolutions: profile.allowed_resolutions || ['1K'],
           totalUsage: profile.total_usage || 0,
           totalPaid: profile.total_paid || 0,
           lastSeen: profile.last_seen || new Date().toISOString()
@@ -157,10 +158,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // 🟢 EFFECT KHỞI TẠO & REALTIME
   useEffect(() => {
     refreshUser();
-    fetchExchangeRate(); // 🔥 Gọi hàm lấy tỷ giá ngay khi vào Web
+    fetchExchangeRate(); 
     
+    // 1. Lắng nghe trạng thái đăng nhập/đăng xuất
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) {
         refreshUser();
@@ -171,8 +174,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
+    // 2. 🔥 REALTIME PROFILE UPDATE: Tự động cập nhật khi Admin sửa quyền
+    let profileSub: any;
+    const setupRealtime = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if(user) {
+            // Đăng ký lắng nghe sự kiện UPDATE trên bảng 'profiles' của chính user này
+            profileSub = supabase
+                .channel(`public:profiles:id=eq.${user.id}`)
+                .on('postgres_changes', 
+                    { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, 
+                    (payload) => {
+                        console.log("⚡ Profile updated from Server (Permissions changed)!", payload);
+                        refreshUser(); // Tải lại thông tin mới nhất ngay lập tức
+                        toast.info("Thông tin tài khoản vừa được cập nhật!");
+                    }
+                )
+                .subscribe();
+        }
+    };
+    setupRealtime();
+
     return () => {
       subscription.unsubscribe();
+      if(profileSub) supabase.removeChannel(profileSub);
     };
   }, []);
 
@@ -183,7 +208,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       isPricingOpen, setPricingOpen,
       assets, usageLogs, transactions, addUsageLog,
       allUsers,
-      exchangeRate // 🔥 Xuất biến tỷ giá ra để AdminDashboard dùng
+      exchangeRate 
     }}>
       {children}
     </AppContext.Provider>
