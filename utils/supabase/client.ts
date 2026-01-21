@@ -1,18 +1,28 @@
-import { createBrowserClient } from '@supabase/ssr'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
-export function createClient() {
-  // ⚠️ QUAN TRỌNG: Phải gọi trực tiếp import.meta.env để Vite nhận diện được
+// Khởi tạo Singleton (Chỉ tạo 1 lần duy nhất để tối ưu hiệu năng)
+let supabaseInstance: ReturnType<typeof createSupabaseClient> | null = null;
+
+export const createClient = () => {
+  // Nếu đã có client rồi thì dùng lại, không tạo mới (Singleton)
+  if (supabaseInstance) return supabaseInstance;
+
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
+  // 🔥 Bắt lỗi chặt chẽ: Thiếu key là báo lỗi đỏ lòm ngay console để biết đường sửa
   if (!supabaseUrl || !supabaseKey) {
-    console.warn('⚠️ Đang thiếu biến môi trường Supabase! Web sẽ chạy lỗi.');
+    console.error("❌ LỖI NGHIÊM TRỌNG: Thiếu biến môi trường Supabase!");
+    console.error("👉 Vui lòng kiểm tra file .env hoặc cấu hình Vercel.");
+    throw new Error("Missing Supabase Environment Variables (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)");
   }
 
-  // Nếu không có biến thật thì dùng chuỗi rỗng để tránh lỗi crash ban đầu, 
-  // nhưng chắc chắn login sẽ không được nếu thiếu biến.
-  return createBrowserClient(
-    supabaseUrl || 'https://placeholder-project.supabase.co',
-    supabaseKey || 'placeholder-anon-key'
-  )
-}
+  supabaseInstance = createSupabaseClient(supabaseUrl, supabaseKey, {
+    auth: {
+      persistSession: true, // Tự động lưu đăng nhập
+      autoRefreshToken: true,
+    }
+  });
+
+  return supabaseInstance;
+};
