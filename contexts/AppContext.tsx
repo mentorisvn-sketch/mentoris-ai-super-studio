@@ -1,14 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, UsageLog } from '../types';
 import { createClient } from '../utils/supabase/client';
-import { toast } from 'sonner';
 
 interface AppContextType {
   user: User | null;
   isLoading: boolean;
   setUser: React.Dispatch<React.SetStateAction<User | null>>;
-  addUsageLog: (log: UsageLog) => void; // Không cần tham số creditsToDeduct nữa
-  syncCredits: (newBalance: number) => void; // 🔥 Hàm mới: Đồng bộ tiền từ Server
+  addUsageLog: (log: UsageLog) => void;
+  syncCredits: (newBalance: number) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -16,25 +15,33 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Khởi tạo client an toàn
   const supabase = createClient();
 
   // 1. Load User & Profile
   useEffect(() => {
+    let mounted = true;
+
     const initAuth = async () => {
       try {
+        // 🔥 FIX TREO: Đặt timeout, nếu sau 2s Supabase chưa trả lời thì tự tắt loading
+        const timeOutId = setTimeout(() => {
+            if (mounted) {
+                console.warn("⚠️ Auth timeout: Force loading to false");
+                setIsLoading(false);
+            }
+        }, 3000);
+
+        // Lấy session
         const { data: { session }, error } = await supabase.auth.getSession();
         
-        // 🔥 FIX ABORT ERROR: Nếu lỗi do Abort hoặc xung đột lock, coi như không có session (Guest)
-        if (error) {
-            if (error.message.includes('AbortError') || error.name === 'AbortError') {
-                console.warn("⚠️ Auth Aborted (Safe Ignore)");
-                return; // Thoát nhẹ nhàng, không throw lỗi
-            }
-            throw error;
-        }
+        clearTimeout(timeOutId); // Xóa timeout nếu lấy xong
+
+        if (error) throw error;
         
-        if (session?.user) {
-           // ... (Logic lấy profile giữ nguyên) ...
+        if (session?.user && mounted) {
+           // Fetch profile (credits)
            const { data: profile } = await supabase
               .from('profiles')
               .select('*')
@@ -50,22 +57,17 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
                avatar: profile?.avatar_url,
                totalUsage: profile?.total_usage || 0
            });
+           
            localStorage.setItem('mentoris_current_user', JSON.stringify({ id: session.user.id }));
         }
       } catch (e: any) {
-          // Bỏ qua các lỗi "rác" do trình duyệt hủy request
-          const isIgnorable = 
-            e.message?.includes('AbortError') || 
-            e.name === 'AbortError' || 
-            e.message?.includes('LockManager');
-
+          // Bỏ qua các lỗi lock/abort rác
+          const isIgnorable = e.message?.includes('Lock') || e.message?.includes('Abort');
           if (!isIgnorable) {
-              console.error("Auth Init Error:", e);
+              console.error("Auth Init Error (Safe):", e);
           }
       } finally {
-          // 🔥 LUÔN LUÔN TẮT LOADING
-          // Để web hiện nội dung dù đăng nhập thất bại
-          setIsLoading(false);
+          if (mounted) setIsLoading(false);
       }
     };
 
@@ -73,11 +75,12 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Listen for Auth Changes
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+        if (!mounted) return;
+        
         if (event === 'SIGNED_OUT') {
             setUser(null);
             localStorage.removeItem('mentoris_current_user');
         } else if (event === 'SIGNED_IN' && session?.user) {
-             // Reload profile khi login
              const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
              setUser({
                  id: session.user.id,
@@ -92,18 +95,15 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => {
+        mounted = false;
         authListener.subscription.unsubscribe();
     };
   }, []);
 
-  // 2. Hàm thêm Log (Chỉ hiển thị UI, không trừ tiền DB)
   const addUsageLog = (log: UsageLog) => {
-    // Chỉ cập nhật thống kê cục bộ nếu cần thiết
-    // Thực tế Server đã lưu log vào bảng 'generations' rồi
     console.log("Activity Logged:", log.action); 
   };
 
-  // 3. Hàm đồng bộ số dư (Gọi khi API trả về số dư mới)
   const syncCredits = (newBalance: number) => {
       if (user) {
           setUser(prev => prev ? { ...prev, credits: newBalance } : null);
