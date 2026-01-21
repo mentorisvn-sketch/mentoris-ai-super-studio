@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useApp } from './contexts/AppContext';
 import { MOCK_USER } from './constants';
@@ -17,8 +16,11 @@ import { LookbookStudio } from './components/studio/LookbookStudio';
 import { VirtualTryOnStudio } from './components/studio/VirtualTryOnStudio';
 import { ConceptStudio } from './components/studio/ConceptStudio';
 import { HistoryGallery } from './components/studio/HistoryGallery';
-import { Calendar, CheckCircle2, Crown, Mail, User as UserIcon, Wallet, Image as ImageIcon, Zap, Clock, ShieldCheck, Settings, Menu } from 'lucide-react';
-import { Toaster } from 'sonner';
+import { 
+    Calendar, CheckCircle2, Crown, Mail, User as UserIcon, Wallet, 
+    Image as ImageIcon, Zap, Clock, ShieldCheck, Settings, Menu, Lock 
+} from 'lucide-react'; // Đã thêm icon Lock
+import { Toaster, toast } from 'sonner';
 
 const MainLayout = () => {
   const { 
@@ -29,7 +31,6 @@ const MainLayout = () => {
   } = useApp();
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-  // NEW: State for Mobile Sidebar
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   
   const profileRef = useRef<HTMLDivElement>(null);
@@ -45,13 +46,12 @@ const MainLayout = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Calculate User Stats for the Profile Dropdown
+  // --- STATS CALCULATION ---
   const userStats = useMemo(() => {
     if (!user) return { img1k: 0, img2k: 0, img4k: 0, total: 0 };
     return usageLogs
         .filter(log => log.userId === user.id)
         .reduce((acc, log) => {
-            // Count total images (not just requests)
             const count = log.tokens.imageCount || 0;
             const res = log.resolution || '1K';
             
@@ -64,28 +64,24 @@ const MainLayout = () => {
         }, { img1k: 0, img2k: 0, img4k: 0, total: 0 });
   }, [user, usageLogs]);
 
-  // Derive activation date from ID (if timestamp based) or default to now
+  // --- HELPER: ACTIVATION DATE ---
   const activationDate = useMemo(() => {
       if (!user) return new Date();
-      // Try to parse timestamp from ID if it follows "user_123456789" format
       if (user.id.startsWith('user_')) {
           const ts = parseInt(user.id.split('_')[1]);
           if (!isNaN(ts)) return new Date(ts);
       }
-      // Fallback for mock user
       return new Date('2024-01-01');
   }, [user]);
 
-  // Helper to handle navigation logic based on auth status
+  // --- NAVIGATION LOGIC ---
   const handleStudioNavigation = async () => {
       if (user) {
-          // Check/Prompt for API Key (Critical for 403 Permission Denied Fix)
           if ((window as any).aistudio) {
               try {
                   const hasKey = await (window as any).aistudio.hasSelectedApiKey();
                   if (!hasKey) {
                       await (window as any).aistudio.openSelectKey();
-                      // Race condition mitigation: assume success and proceed
                   }
               } catch (e) {
                   console.error("API Key selection error:", e);
@@ -97,24 +93,37 @@ const MainLayout = () => {
       }
   };
 
-  // REFACTORED: Add animate-slide-up class when tab is active
+  // --- PERMISSION CHECK (KIỂM TRA QUYỀN TRUY CẬP) ---
+  const checkPermission = (permId: string) => {
+      if (!user) return false;
+      // Admin luôn có quyền
+      if (user.role === 'admin') return true; 
+      // Các tab cơ bản luôn mở
+      if (permId === 'resources' || permId === 'history') return true;
+      
+      // Kiểm tra trong mảng permissions
+      return user.permissions?.includes(permId) || user.permissions?.includes('all');
+  };
+
+  // --- RENDER STUDIO CONTENT ---
+  // Chỉ render nếu tab đó được Active VÀ User có quyền truy cập
   const renderStudioContent = () => {
     return (
         <>
             <div className={`h-full w-full ${activeStudioTab === 'sketch' ? 'block animate-slide-up' : 'hidden'}`}>
-                <SketchStudio />
+                {checkPermission('sketch') ? <SketchStudio /> : <AccessDeniedView />}
             </div>
             <div className={`h-full w-full ${activeStudioTab === 'quick-design' ? 'block animate-slide-up' : 'hidden'}`}>
-                <QuickDesignStudio />
+                {checkPermission('quick-design') ? <QuickDesignStudio /> : <AccessDeniedView />}
             </div>
             <div className={`h-full w-full ${activeStudioTab === 'lookbook' ? 'block animate-slide-up' : 'hidden'}`}>
-                <LookbookStudio />
+                {checkPermission('lookbook') ? <LookbookStudio /> : <AccessDeniedView />}
             </div>
             <div className={`h-full w-full ${activeStudioTab === 'try-on' ? 'block animate-slide-up' : 'hidden'}`}>
-                <VirtualTryOnStudio />
+                {checkPermission('try-on') ? <VirtualTryOnStudio /> : <AccessDeniedView />}
             </div>
             <div className={`h-full w-full ${activeStudioTab === 'concept-product' ? 'block animate-slide-up' : 'hidden'}`}>
-                <ConceptStudio />
+                {checkPermission('concept-product') ? <ConceptStudio /> : <AccessDeniedView />}
             </div>
             <div className={`h-full w-full ${activeStudioTab === 'resources' ? 'block animate-slide-up' : 'hidden'}`}>
                 <ResourcesView />
@@ -128,7 +137,6 @@ const MainLayout = () => {
 
   return (
     <div className="min-h-screen bg-white text-black font-sans selection:bg-black selection:text-white">
-      {/* GLOBAL TOASTER: Positioned top-center for best visibility on all devices */}
       <Toaster position="top-center" richColors closeButton />
 
       {/* LANDING */}
@@ -141,15 +149,13 @@ const MainLayout = () => {
                 onEnterStudio={handleStudioNavigation}
             />
             <LandingPage 
-                onNavigate={(tab) => {
-                    setActiveStudioTab(tab);
-                }}
+                onNavigate={(tab) => { setActiveStudioTab(tab); }}
                 onEnterStudio={handleStudioNavigation}
             />
           </>
       )}
 
-      {/* STATIC PAGES (NEW) */}
+      {/* STATIC PAGES */}
       {(viewMode === 'about' || viewMode === 'privacy' || viewMode === 'terms') && (
           <StaticPage type={viewMode} />
       )}
@@ -169,23 +175,32 @@ const MainLayout = () => {
           <UserProfilePage />
       )}
 
-      {/* STUDIO */}
+      {/* STUDIO MODE */}
       {viewMode === 'studio' && (
           <div className="flex h-screen overflow-hidden bg-gray-50 relative">
              <StudioSidebar 
                 activeTab={activeStudioTab}
-                onTabChange={(tab) => { setActiveStudioTab(tab); setIsMobileSidebarOpen(false); }}
+                onTabChange={(tab) => { 
+                    // Kiểm tra quyền trước khi cho chuyển tab
+                    if (checkPermission(tab)) {
+                        setActiveStudioTab(tab);
+                        setIsMobileSidebarOpen(false);
+                    } else {
+                        toast.error("Tính năng này đã bị khóa", { description: "Vui lòng liên hệ Admin để mở khóa." });
+                    }
+                }}
                 onExitStudio={() => setViewMode('landing')}
                 user={user}
                 onGoToAdmin={() => setViewMode('admin')}
                 onLogout={logout}
-                // Mobile props
                 isOpen={isMobileSidebarOpen}
                 onClose={() => setIsMobileSidebarOpen(false)}
+                // Truyền hàm checkPermission xuống Sidebar để hiển thị Icon Lock
+                checkPermission={checkPermission} 
              />
              
              {/* Main Content */}
-             <main className="flex-1 relative h-full overflow-hidden w-full lg:ml-32 transition-all duration-300"> 
+             <main className="flex-1 relative h-full overflow-hidden w-full lg:ml-64 transition-all duration-300"> 
                 
                 {/* Mobile Header Bar */}
                 <div className="lg:hidden flex items-center justify-between px-4 py-3 bg-white/80 backdrop-blur border-b border-gray-100 z-30 sticky top-0">
@@ -193,7 +208,7 @@ const MainLayout = () => {
                         <Menu className="w-6 h-6 text-gray-700" />
                     </button>
                     <span className="font-bold text-sm uppercase tracking-wider">{activeStudioTab.replace('-', ' ')}</span>
-                    <div className="w-8"></div> {/* Spacer for center alignment */}
+                    <div className="w-8"></div>
                 </div>
 
                 {/* Floating User Info Widget (Responsive) */}
@@ -210,14 +225,11 @@ const MainLayout = () => {
                     </div>
 
                     <div className="relative pointer-events-auto group" ref={profileRef}>
-                        <button 
-                            onClick={() => setIsProfileOpen(!isProfileOpen)}
-                            className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-white border-2 border-white shadow-md p-0.5 cursor-pointer hover:shadow-lg transition-all overflow-hidden active:scale-95"
-                        >
+                        <button onClick={() => setIsProfileOpen(!isProfileOpen)} className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-white border-2 border-white shadow-md p-0.5 cursor-pointer hover:shadow-lg transition-all overflow-hidden active:scale-95">
                             <img src={user?.avatar} className="w-full h-full rounded-full object-cover" alt="User" />
                         </button>
                         
-                        {/* Enhanced Profile Dropdown */}
+                        {/* Profile Dropdown */}
                         {isProfileOpen && (
                             <div className="absolute top-full right-0 mt-2 w-72 lg:w-80 bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden animate-in fade-in zoom-in duration-200 origin-top-right">
                                 {/* Header */}
@@ -255,42 +267,15 @@ const MainLayout = () => {
                                         </div>
                                     </div>
 
-                                    {/* Resolution Breakdown */}
-                                    <div className="px-4 py-2">
-                                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Chi tiết sản lượng</p>
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex-1 bg-white border border-gray-200 rounded-lg p-2 text-center">
-                                                <span className="block text-[10px] font-bold text-gray-500">Standard 1K</span>
-                                                <span className="block text-sm font-black">{userStats.img1k}</span>
-                                            </div>
-                                            <div className="flex-1 bg-white border border-blue-100 rounded-lg p-2 text-center relative overflow-hidden">
-                                                <div className="absolute top-0 left-0 w-full h-0.5 bg-blue-500"></div>
-                                                <span className="block text-[10px] font-bold text-blue-600">HD 2K</span>
-                                                <span className="block text-sm font-black">{userStats.img2k}</span>
-                                            </div>
-                                            <div className="flex-1 bg-white border border-purple-100 rounded-lg p-2 text-center relative overflow-hidden">
-                                                <div className="absolute top-0 left-0 w-full h-0.5 bg-purple-500"></div>
-                                                <span className="block text-[10px] font-bold text-purple-600">Cinema 4K</span>
-                                                <span className="block text-sm font-black">{userStats.img4k}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-
                                     <div className="h-px bg-gray-100 mx-4 my-2"></div>
                                 </div>
 
                                 {/* Actions */}
                                 <div className="p-3 bg-gray-50 border-t border-gray-100 flex flex-col gap-2">
-                                    <button 
-                                        onClick={() => { setViewMode('settings'); setIsProfileOpen(false); }} 
-                                        className="w-full text-left py-2.5 px-4 text-xs font-bold text-gray-700 hover:bg-white hover:text-black rounded-xl flex items-center gap-2 transition-colors border border-transparent hover:border-gray-200 hover:shadow-sm"
-                                    >
+                                    <button onClick={() => { setViewMode('settings'); setIsProfileOpen(false); }} className="w-full text-left py-2.5 px-4 text-xs font-bold text-gray-700 hover:bg-white hover:text-black rounded-xl flex items-center gap-2 transition-colors border border-transparent hover:border-gray-200 hover:shadow-sm">
                                         <Settings className="w-3.5 h-3.5" /> Cài đặt tài khoản
                                     </button>
-                                    <button 
-                                        onClick={() => setPricingOpen(true)} 
-                                        className="w-full text-center py-2.5 text-xs font-bold text-black bg-[#66E91E] hover:bg-[#5cd41b] rounded-xl flex items-center justify-center gap-2 shadow-sm transition-transform hover:-translate-y-0.5"
-                                    >
+                                    <button onClick={() => setPricingOpen(true)} className="w-full text-center py-2.5 text-xs font-bold text-black bg-[#66E91E] hover:bg-[#5cd41b] rounded-xl flex items-center justify-center gap-2 shadow-sm transition-transform hover:-translate-y-0.5">
                                         <Crown className="w-3.5 h-3.5" /> Mua thêm Credit
                                     </button>
                                     <button onClick={() => setViewMode('landing')} className="w-full text-center py-2.5 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors">
@@ -313,12 +298,26 @@ const MainLayout = () => {
       )}
 
       <PricingModal 
-         isOpen={isPricingOpen} 
-         onClose={() => setPricingOpen(false)} 
-         onSelectPackage={(pkg) => console.log(pkg)} 
+          isOpen={isPricingOpen} 
+          onClose={() => setPricingOpen(false)} 
+          onSelectPackage={(pkg) => console.log(pkg)} 
       />
     </div>
   );
 };
+
+// --- SUB-COMPONENT: ACCESS DENIED VIEW ---
+const AccessDeniedView = () => (
+    <div className="flex flex-col items-center justify-center h-full bg-gray-50 text-center px-4">
+        <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mb-4">
+            <Lock className="w-8 h-8 text-gray-500" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Tính năng bị khóa</h2>
+        <p className="text-sm text-gray-500 max-w-md">
+            Tài khoản của bạn chưa được cấp quyền sử dụng tính năng này. 
+            Vui lòng liên hệ Admin hoặc nâng cấp gói để mở khóa.
+        </p>
+    </div>
+);
 
 export default MainLayout;
