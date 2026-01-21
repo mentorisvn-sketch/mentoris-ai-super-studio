@@ -107,22 +107,21 @@ const TopUpModal = ({ user, isOpen, onClose, onSuccess }: any) => {
 const EditUserModal = ({ user, isOpen, onClose, onSuccess }: any) => {
     const { supabase } = useApp();
     
-    // State form chỉnh sửa
+    // State form chỉnh sửa thông tin cơ bản
     const [formData, setFormData] = useState({ 
         full_name: '', 
         phone: '', 
         role: 'customer' 
     });
     
-    // State phân quyền (Permissions)
+    // ✅ GIỮ NGUYÊN STATE NÀY (Để dùng trong UI cho gọn)
     const [permissions, setPermissions] = useState<string[]>([]);
     
-    // State độ phân giải (Resolutions)
+    // State độ phân giải
     const [allowedResolutions, setAllowedResolutions] = useState<string[]>([]);
-    
     const [loading, setLoading] = useState(false);
 
-    // Load dữ liệu user khi mở modal
+    // 🟢 1. LOAD DỮ LIỆU: Đổ dữ liệu từ User vào State
     useEffect(() => {
         if(user) {
             setFormData({ 
@@ -130,15 +129,18 @@ const EditUserModal = ({ user, isOpen, onClose, onSuccess }: any) => {
                 phone: user.phone || '', 
                 role: user.role 
             });
-            // Nếu user chưa có quyền gì thì mặc định là rỗng
-            setPermissions(user.permissions || []);
+            
+            // Lưu ý: Ở component cha (fetchAdminData), ta đã map 'custom_permissions' -> 'user.permissions'
+            // Nên ở đây ta lấy 'user.permissions' là đúng.
+            setPermissions(user.permissions || []); 
+            
             setAllowedResolutions(user.allowedResolutions || ['1K']);
         }
     }, [user]);
 
     if (!isOpen || !user) return null;
 
-    // Logic Toggle Checkbox (Thêm/Xóa quyền)
+    // Logic Toggle (Bật/Tắt quyền)
     const togglePermission = (id: string) => {
         setPermissions(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
     };
@@ -147,25 +149,38 @@ const EditUserModal = ({ user, isOpen, onClose, onSuccess }: any) => {
         setAllowedResolutions(prev => prev.includes(res) ? prev.filter(r => r !== res) : [...prev, res]);
     };
 
+    // 🟢 2. LƯU DỮ LIỆU (QUAN TRỌNG NHẤT): Map ngược lại vào cột 'custom_permissions'
     const handleSave = async () => {
         setLoading(true);
         try {
-            // Cập nhật DB (Bảng profiles)
-            // Lưu ý: Tên cột trong DB phải khớp (allowed_resolutions, permissions)
-            const { error } = await supabase.from('profiles').update({
+            const { data, error } = await supabase.from('profiles').update({
                 full_name: formData.full_name,
                 phone: formData.phone,
                 role: formData.role,
-                permissions: permissions,             // Cập nhật mảng quyền
-                allowed_resolutions: allowedResolutions // Cập nhật mảng độ phân giải
-            }).eq('id', user.id);
+                
+                // 🔥 CHỖ CẦN SỬA LÀ ĐÂY:
+                // Key bên trái (custom_permissions) phải khớp 100% với tên cột trong Supabase
+                // Value bên phải (permissions) là state của chúng ta
+                custom_permissions: permissions, 
+                
+                allowed_resolutions: allowedResolutions
+            })
+            .eq('id', user.id)
+            .select(); // Thêm .select() để kiểm tra kết quả trả về
 
             if (error) throw error;
+
+            // Kiểm tra lỗi ẩn (Silent Failure)
+            if (!data || data.length === 0) {
+                throw new Error("Không thể cập nhật! Có thể tài khoản của bạn chưa có quyền Admin hoặc User này không tồn tại.");
+            }
+
             toast.success("Cập nhật thông tin & quyền hạn thành công!");
-            onSuccess();
+            onSuccess(); // Refresh lại bảng dữ liệu bên ngoài
             onClose();
         } catch (e: any) {
-            toast.error("Lỗi cập nhật: " + e.message);
+            console.error("Lỗi update:", e);
+            toast.error("Lỗi: " + e.message);
         } finally {
             setLoading(false);
         }
@@ -204,7 +219,6 @@ const EditUserModal = ({ user, isOpen, onClose, onSuccess }: any) => {
                                     <option value="customer">Khách hàng (Customer)</option>
                                     <option value="admin">Quản trị viên (Admin - Full quyền)</option>
                                 </select>
-                                {formData.role === 'admin' && <p className="text-[10px] text-yellow-500 mt-1 italic">*Admin sẽ mặc định có tất cả các quyền.</p>}
                             </div>
                         </div>
                     </div>
@@ -242,7 +256,6 @@ const EditUserModal = ({ user, isOpen, onClose, onSuccess }: any) => {
                     <div className="space-y-4">
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-widest border-b border-[#333] pb-2 flex justify-between">
                             <span>3. Chất lượng ảnh cho phép</span>
-                            <span className="text-[10px] normal-case text-gray-400">(Chỉ được tạo ảnh ở độ phân giải đã chọn)</span>
                         </h4>
                         <div className="flex gap-4">
                             {RESOLUTION_LIST.map(res => {
