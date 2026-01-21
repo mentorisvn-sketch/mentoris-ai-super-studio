@@ -9,10 +9,11 @@ import { getUserHistory } from '../../services/storageService';
 import { toast } from 'sonner';
 
 export const VirtualTryOnStudio = () => {
-  const { addUsageLog, user } = useApp();
+  // 🔥 Thêm syncCredits
+  const { addUsageLog, user, syncCredits } = useApp();
   
   // ===========================================================================
-  // 1. STATE MANAGEMENT (QUẢN LÝ TRẠNG THÁI)
+  // 1. STATE MANAGEMENT
   // ===========================================================================
   
   // Input Images
@@ -35,23 +36,21 @@ export const VirtualTryOnStudio = () => {
   const accInputRef = useRef<HTMLInputElement>(null);
 
   // ===========================================================================
-  // 2. PRICING LOGIC (LOGIC TÍNH TIỀN - NEW UPDATE)
+  // 2. PRICING LOGIC (HIỂN THỊ)
   // ===========================================================================
   
-  // Quy ước giá mới: 1K=4, 2K=5, 4K=10
-  const calculateCredits = (cfg: GenConfig) => {
-      let perImage = 4; // Mặc định 1K (Draft)
-      
-      if (cfg.resolution === '2K') perImage = 5;  // Standard
-      if (cfg.resolution === '4K') perImage = 10; // High Quality
-      
+  // Chỉ dùng để hiển thị ước tính cho user
+  const calculateEstimatedCredits = (cfg: GenConfig) => {
+      let perImage = 4;
+      if (cfg.resolution === '2K') perImage = 5;
+      if (cfg.resolution === '4K') perImage = 10;
       return perImage * cfg.count;
   };
 
-  const estimatedCredits = calculateCredits(config);
+  const estimatedCredits = calculateEstimatedCredits(config);
 
   // ===========================================================================
-  // 3. DATA FETCHING (LẤY LỊCH SỬ)
+  // 3. DATA FETCHING
   // ===========================================================================
   useEffect(() => {
       const fetchHistory = async () => {
@@ -70,7 +69,7 @@ export const VirtualTryOnStudio = () => {
   }, [user, isGenerating]);
 
   // ===========================================================================
-  // 4. HANDLERS (XỬ LÝ SỰ KIỆN)
+  // 4. HANDLERS
   // ===========================================================================
 
   const removeAccessory = (index: number) => {
@@ -82,9 +81,9 @@ export const VirtualTryOnStudio = () => {
     if (!modelImage) return toast.error("Vui lòng tải lên ảnh người mẫu!");
     if (!garmentImage) return toast.error("Vui lòng tải lên ảnh sản phẩm cần thay!");
 
-    // Check Balance (Kiểm tra số dư)
+    // Check Balance Client-side
     if (user && user.credits < estimatedCredits) {
-        toast.error("Không đủ Credits", { description: `Cần ${estimatedCredits}, bạn có ${user.credits}` });
+        toast.error("Không đủ Credits", { description: `Cần khoảng ${estimatedCredits}, bạn có ${user.credits}` });
         return;
     }
 
@@ -92,7 +91,7 @@ export const VirtualTryOnStudio = () => {
     setResult([]);
 
     try {
-        // Gọi API AI
+        // 1. Gọi API (Server handle everything)
         const res = await generateVirtualTryOn(
             modelImage,
             garmentImage,
@@ -104,7 +103,7 @@ export const VirtualTryOnStudio = () => {
         
         setResult(res.images);
 
-        // Ghi Log & Trừ Tiền (Quan trọng)
+        // 2. Ghi Log UI (Không trừ tiền ở đây)
         addUsageLog({
            id: Date.now().toString(),
            timestamp: Date.now(),
@@ -114,10 +113,15 @@ export const VirtualTryOnStudio = () => {
            modelName: 'gemini-tryon-pro',
            resolution: config.resolution,
            tokens: res.usage,
-           cost: estimatedCredits // <--- Lưu đúng số tiền đã tính (4/5/10)
-       }, estimatedCredits); // <--- Trừ đúng số tiền này trong Database
+           cost: 0 // Client ghi 0
+        }); // Bỏ tham số creditsToDeduct
 
-       toast.success("Thử đồ thành công!", { description: `-${estimatedCredits} Credits` });
+        // 3. 🔥 Sync Balance from Server
+        if (res.newBalance !== undefined) {
+            syncCredits(res.newBalance);
+        }
+
+        toast.success("Thử đồ thành công!");
 
     } catch (e: any) {
         console.error(e);
@@ -137,7 +141,7 @@ export const VirtualTryOnStudio = () => {
   };
 
   // ===========================================================================
-  // 5. RENDER UI (GIAO DIỆN)
+  // 5. RENDER UI
   // ===========================================================================
   return (
     <div className="flex flex-col lg:flex-row h-full bg-white overflow-hidden">
