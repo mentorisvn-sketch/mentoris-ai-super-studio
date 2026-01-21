@@ -53,12 +53,18 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
            localStorage.setItem('mentoris_current_user', JSON.stringify({ id: session.user.id }));
         }
       } catch (e: any) {
-          // Chỉ log lỗi nếu KHÔNG PHẢI là AbortError
-          if (!e.message?.includes('AbortError') && e.name !== 'AbortError') {
+          // Bỏ qua các lỗi "rác" do trình duyệt hủy request
+          const isIgnorable = 
+            e.message?.includes('AbortError') || 
+            e.name === 'AbortError' || 
+            e.message?.includes('LockManager');
+
+          if (!isIgnorable) {
               console.error("Auth Init Error:", e);
           }
       } finally {
-          // 🔥 QUAN TRỌNG: Luôn tắt loading để web hiện lên
+          // 🔥 LUÔN LUÔN TẮT LOADING
+          // Để web hiện nội dung dù đăng nhập thất bại
           setIsLoading(false);
       }
     };
