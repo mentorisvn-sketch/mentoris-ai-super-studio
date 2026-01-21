@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { Aperture, Download, Maximize2, Loader2, Sparkles, Image as ImageIcon, Lightbulb, Edit3 } from 'lucide-react';
 import { Button, SectionHeader, FileUploader, GenerationSettingsPanel, ImageLightbox, FadeImage } from '../ui';
-import { DEFAULT_GEN_CONFIG, CONCEPTS } from '../../constants';
+import { DEFAULT_GEN_CONFIG } from '../../constants';
 import { GenConfig, LibraryAsset } from '../../types';
 import { generateConceptProduct } from '../../services/ai';
 import { useApp } from '../../contexts/AppContext';
@@ -13,26 +12,34 @@ import { toast } from 'sonner';
 export const ConceptStudio = () => {
     const { addUsageLog, user } = useApp();
     
-    // State
+    // ===========================================================================
+    // 1. STATE MANAGEMENT (QUẢN LÝ TRẠNG THÁI)
+    // ===========================================================================
+    
+    // Input Data (Dữ liệu đầu vào)
     const [productImage, setProductImage] = useState<string | null>(null);
     const [styleRef, setStyleRef] = useState<string | null>(null);
     const [prompt, setPrompt] = useState("");
     
-    // Modal State
+    // Modal State (Trạng thái Modal)
     const [isConceptModalOpen, setConceptModalOpen] = useState(false);
     
+    // Configuration & UI State (Cấu hình & Giao diện)
     const [config, setConfig] = useState<GenConfig>(DEFAULT_GEN_CONFIG);
     const [isGenerating, setIsGenerating] = useState(false);
     const [result, setResult] = useState<string[]>([]);
     const [lightboxImage, setLightboxImage] = useState<string | null>(null);
     const [recentHistory, setRecentHistory] = useState<{ id: string, url: string }[]>([]);
 
-    // History
+    // ===========================================================================
+    // 2. DATA FETCHING (LẤY DỮ LIỆU LỊCH SỬ)
+    // ===========================================================================
     useEffect(() => {
         const fetchHistory = async () => {
             if (!user) return;
             try {
                 const history = await getUserHistory(user.id);
+                // Lọc lấy lịch sử loại 'concept-product'
                 const conceptHistory = history
                     .filter(item => item.record.type === 'concept-product')
                     .slice(0, 50)
@@ -43,21 +50,36 @@ export const ConceptStudio = () => {
         if (!isGenerating) fetchHistory();
     }, [user, isGenerating]);
 
-    // Pricing
+    // ===========================================================================
+    // 3. PRICING LOGIC (LOGIC TÍNH TIỀN - NEW UPDATE)
+    // ===========================================================================
+    
+    // Hàm tính toán số Credits cần trừ dựa trên độ phân giải
+    // Quy ước: 1K=4, 2K=5, 4K=10
     const calculateCredits = (cfg: GenConfig) => {
-        let perImage = 6; 
-        if (cfg.resolution === '2K') perImage = 12;
-        if (cfg.resolution === '4K') perImage = 20;
+        let perImage = 4; // Mặc định 1K (Draft)
+        
+        if (cfg.resolution === '2K') perImage = 5;  // Standard
+        if (cfg.resolution === '4K') perImage = 10; // High Quality
+        
         return perImage * cfg.count;
     };
+
+    // Biến lưu số credits ước tính để hiển thị lên UI
     const estimatedCredits = calculateCredits(config);
 
+    // ===========================================================================
+    // 4. MAIN HANDLERS (XỬ LÝ CHÍNH)
+    // ===========================================================================
+
     const handleGenerate = async () => {
+        // Validation (Kiểm tra đầu vào)
         if (!productImage) return toast.error("Vui lòng tải lên ảnh sản phẩm!");
         if (!prompt && !styleRef) return toast.error("Vui lòng nhập mô tả hoặc ảnh tham chiếu!");
 
+        // Check Balance (Kiểm tra số dư tài khoản)
         if (user && user.credits < estimatedCredits) {
-             toast.error("Không đủ Credits");
+             toast.error("Không đủ Credits", { description: `Cần ${estimatedCredits}, bạn có ${user.credits}` });
              return;
         }
 
@@ -65,6 +87,7 @@ export const ConceptStudio = () => {
         setResult([]);
 
         try {
+            // Gọi AI Service
             const res = await generateConceptProduct(
                 productImage,
                 styleRef,
@@ -73,6 +96,7 @@ export const ConceptStudio = () => {
             );
             setResult(res.images);
 
+            // Ghi Log & Trừ Tiền (Database Transaction)
             addUsageLog({
                 id: Date.now().toString(),
                 timestamp: Date.now(),
@@ -82,13 +106,13 @@ export const ConceptStudio = () => {
                 modelName: 'gemini-3-pro-image-preview',
                 resolution: config.resolution,
                 tokens: res.usage,
-                cost: res.usage.imageCount * 0.06
-            }, estimatedCredits);
+                cost: estimatedCredits // <--- Lưu đúng số tiền (4/5/10)
+            }, estimatedCredits); // <--- Trừ đúng số tiền này
             
-            toast.success("Concept hoàn tất!");
-        } catch (e) {
+            toast.success("Concept hoàn tất!", { description: `-${estimatedCredits} Credits` });
+        } catch (e: any) {
             console.error(e);
-            toast.error("Lỗi tạo ảnh concept.");
+            toast.error("Lỗi tạo ảnh concept.", { description: e.message });
         } finally {
             setIsGenerating(false);
         }
@@ -103,21 +127,24 @@ export const ConceptStudio = () => {
         document.body.removeChild(link);
     };
 
-    // When concept selected from Modal
+    // Xử lý khi chọn Concept mẫu từ thư viện
     const handleSelectConcept = (asset: LibraryAsset) => {
         setPrompt(asset.prompt_payload);
     };
 
+    // ===========================================================================
+    // 5. RENDER UI (GIAO DIỆN NGƯỜI DÙNG)
+    // ===========================================================================
     return (
         <div className="flex flex-col lg:flex-row h-full bg-white overflow-hidden">
-            {/* --- LEFT COLUMN: FIXED --- */}
+            {/* --- LEFT COLUMN: INPUTS & SETTINGS --- */}
             <div className="w-full lg:w-[400px] xl:w-[450px] flex-shrink-0 h-full flex flex-col border-r border-gray-200 bg-white z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)]">
                 <div className="flex-none p-5 border-b border-gray-100 bg-white z-10">
                     <SectionHeader title="Concept Studio" subtitle="Quảng cáo & Thương mại" />
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-5 space-y-6 [&::-webkit-scrollbar]:hidden">
-                    {/* 1. Subject */}
+                    {/* 1. Subject (Ảnh sản phẩm) */}
                     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                             <div className="flex justify-between items-center mb-2">
                             <label className="text-xs font-bold uppercase tracking-wider text-gray-500">1. Sản phẩm (Subject)</label>
@@ -131,7 +158,7 @@ export const ConceptStudio = () => {
                         />
                     </div>
 
-                    {/* 2. Style Ref */}
+                    {/* 2. Style Ref (Ảnh tham khảo phong cách) */}
                     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                             <div className="flex justify-between items-center mb-2">
                             <label className="text-xs font-bold uppercase tracking-wider text-gray-500">2. Tham chiếu Style</label>
@@ -146,7 +173,7 @@ export const ConceptStudio = () => {
                         <p className="text-[10px] text-gray-400 mt-2">Học ánh sáng, bố cục và màu sắc từ ảnh này.</p>
                     </div>
 
-                    {/* 3. Concept Prompt */}
+                    {/* 3. Concept Prompt (Mô tả ý tưởng) */}
                     <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                             <div className="flex justify-between items-center mb-2">
                             <label className="text-xs font-bold uppercase tracking-wider text-gray-500">3. Mô tả ý tưởng</label>
@@ -168,11 +195,13 @@ export const ConceptStudio = () => {
                             </div>
                     </div>
 
+                    {/* 4. Generation Settings (Cấu hình nâng cao) */}
                     <div className="pb-4">
                         <GenerationSettingsPanel config={config} onChange={setConfig} isPoseSelectionActive={false} />
                     </div>
                 </div>
 
+                {/* Footer Action Button */}
                 <div className="flex-none p-5 border-t border-gray-100 bg-white shadow-[0_-4px_10px_rgba(0,0,0,0.03)] z-30">
                     <Button onClick={handleGenerate} loading={isGenerating} className="w-full h-12 text-base shadow-xl rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white">
                         {isGenerating ? 'Đang sáng tạo...' : 'Tạo Concept'} <Aperture className="w-5 h-5 ml-1" />
@@ -183,7 +212,7 @@ export const ConceptStudio = () => {
                 </div>
             </div>
 
-            {/* --- RIGHT COLUMN: RESULTS --- */}
+            {/* --- RIGHT COLUMN: RESULTS GALLERY --- */}
             <div className="flex-1 h-full bg-gray-50/50 overflow-y-auto p-4 md:p-8">
                 <div className="max-w-5xl mx-auto">
                     <div className="flex justify-between items-center mb-6">
@@ -242,6 +271,7 @@ export const ConceptStudio = () => {
                 )}
             </div>
             
+            {/* --- MODALS --- */}
             <ConceptLibraryModal isOpen={isConceptModalOpen} onClose={() => setConceptModalOpen(false)} selectedId={""} onSelect={handleSelectConcept} />
             {lightboxImage && <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />}
         </div>
