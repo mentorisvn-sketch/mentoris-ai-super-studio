@@ -22,10 +22,19 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        // 🔥 FIX ABORT ERROR: Nếu lỗi do Abort hoặc xung đột lock, coi như không có session (Guest)
+        if (error) {
+            if (error.message.includes('AbortError') || error.name === 'AbortError') {
+                console.warn("⚠️ Auth Aborted (Safe Ignore)");
+                return; // Thoát nhẹ nhàng, không throw lỗi
+            }
+            throw error;
+        }
         
         if (session?.user) {
-           // Fetch profile (credits)
+           // ... (Logic lấy profile giữ nguyên) ...
            const { data: profile } = await supabase
               .from('profiles')
               .select('*')
@@ -41,13 +50,15 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
                avatar: profile?.avatar_url,
                totalUsage: profile?.total_usage || 0
            });
-           
-           // Lưu cache nhẹ để dùng ở nơi khác nếu cần
            localStorage.setItem('mentoris_current_user', JSON.stringify({ id: session.user.id }));
         }
-      } catch (e) {
-          console.error("Auth Init Error:", e);
+      } catch (e: any) {
+          // Chỉ log lỗi nếu KHÔNG PHẢI là AbortError
+          if (!e.message?.includes('AbortError') && e.name !== 'AbortError') {
+              console.error("Auth Init Error:", e);
+          }
       } finally {
+          // 🔥 QUAN TRỌNG: Luôn tắt loading để web hiện lên
           setIsLoading(false);
       }
     };
