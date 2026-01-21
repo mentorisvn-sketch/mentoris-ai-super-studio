@@ -1,4 +1,3 @@
-
 import { GenConfig, RenderSettings, DesignLayer, TokenUsage } from "../../types";
 import { LOOKBOOK_ANGLES } from "../../constants";
 import { getSketchToRealityPrompt, getRealisticRenderPrompt, getLookbookPrompt, getVirtualTryOnPrompt, getConceptProductPrompt } from "./prompts";
@@ -12,11 +11,10 @@ const stripBase64Prefix = (base64: string): string => {
   return base64;
 };
 
-// Get current user ID safely from localStorage (since this function is called outside React Context)
+// Get current user ID safely
 const getCurrentUserId = () => {
     try {
-        const userStr = localStorage.getItem('mentoris_current_user'); // Note: This might be stale if using Supabase exclusively, but kept for IndexedDB key consistency
-        // Ideally we should pass userId from the component, but for offline storage keying this is acceptable fallback
+        const userStr = localStorage.getItem('mentoris_current_user'); 
         if (userStr) return JSON.parse(userStr).id;
     } catch(e) {}
     return 'guest';
@@ -30,21 +28,23 @@ const callGenerateAPI = async (
     type: string
 ): Promise<{ url: string, usage: TokenUsage }> => {
     
-    // 1. Construct Payload
+    // 1. Construct Payload (CẤU TRÚC LẠI PAYLOAD CHUẨN)
+    // Chúng ta gửi cấu trúc phẳng để Server dễ đọc
     const payload = {
         model,
         contents,
         type,
         config: {
-            imageConfig: {
-                aspectRatio: config.aspectRatio,
-                imageSize: config.resolution
-            }
+            // 🔥 QUAN TRỌNG: Chỉ gửi count = 1 vì hàm này được gọi trong vòng lặp
+            count: 1, 
+            // Gửi resolution để Server tính tiền (1K/2K/4K)
+            resolution: config.resolution, 
+            // Gửi aspectRatio để AI xử lý (16:9, 1:1...)
+            aspectRatio: config.aspectRatio 
         }
     };
 
     // 2. Fetch Server API
-    // REFACTORED: Point to Vercel Serverless Function
     const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
@@ -63,11 +63,8 @@ const callGenerateAPI = async (
     // 3. Process Result (Base64)
     const base64Data = result.data;
     
-    // 4. Save to Client Storage (IndexedDB)
-    // We do this on the client side to persist the history locally without re-downloading
+    // 4. Save to Client Storage
     const userId = getCurrentUserId();
-    // Try to get userId from Supabase session if possible, otherwise fallback
-    // (In a perfect refactor, we'd pass userId as arg)
     
     try {
         await saveImageToStorage(base64Data, userId, type as any, {
@@ -133,6 +130,7 @@ export const generateFromSketch = async (
 
   parts.push({ text: prompt });
 
+  // Vòng lặp gọi API từng ảnh một
   const promises = Array.from({ length: config.count }).map(() => 
     callGenerateAPI('gemini-3-pro-image-preview', { parts: parts }, config, 'sketch')
   );
