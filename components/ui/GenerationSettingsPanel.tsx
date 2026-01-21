@@ -141,8 +141,8 @@ export const GenerationSettingsPanel = ({ config, onChange, isPoseSelectionActiv
       {/* ------------------------------------------------ */}
       <div className="space-y-3">
         <label className="text-xs font-bold uppercase tracking-wider text-gray-500">Số lượng tạo</label>
-        <div className="grid grid-cols-5 gap-2">
-          {[1, 2, 3, 4, 6].map((num) => (
+        <div className="grid grid-cols-6 gap-2">
+          {[1, 2, 3, 4, 5, 6].map((num) => (
             <button
               key={num}
               onClick={() => onChange({ ...config, count: num })}
